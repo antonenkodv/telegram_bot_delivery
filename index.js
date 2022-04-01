@@ -22,10 +22,8 @@ var bot = new TelegramBot(token, {
 });
 process.env["NTBA_FIX_350"] = 1;
 
-handleDisconnect();
-
 function handleDisconnect() {
-    db = mysql.createConnection(mysqlInfo); // Recreate the connection, since                                                 // the old one cannot be reused
+    db = mysql.createConnection(mysqlInfo); // Recreate the connection, since // the old one cannot be reused
     db.connect(function (err) { // The server is either down
         if (err) { // or restarting (takes a while sometimes).
             console.log('error when connecting to db:', err);
@@ -43,6 +41,14 @@ function handleDisconnect() {
     });
 }
 
+handleDisconnect();
+
+bot.setMyCommands([
+    {command: '/start', description: 'начало регистрации'},
+    {command: '/new', description: 'создание админа'},
+    {command: '/admin', description: 'действия админа'},
+
+])
 function getUser(msg, type = 0) {
     return new Promise(resolve => {
         if (msg.text && type == 0)
@@ -167,6 +173,7 @@ bot.onText(/^\/start/, async function (msg, match) {
     }
 
 });
+
 bot.onText(/^\/admin/, async function (msg, match) {
     const chatId = msg.from.id;
     var user = await getUser(msg);
@@ -187,7 +194,7 @@ bot.onText(/^\/admin/, async function (msg, match) {
 });
 bot.onText(/^\/new/, async function (msg, match) {//регистрация администраторов
     const chatId = msg.from.id;
-    // if (chatId == '287363909') {
+    if (chatId == '287363909') {
         db.query("INSERT INTO `admins`(`link`) VALUES ('" + sha1(Math.random()) + "')");
         var newOrg = await getSql("admins", "user_id is NULL");
         var txt = "";
@@ -196,8 +203,39 @@ bot.onText(/^\/new/, async function (msg, match) {//регистрация ад�
             txt += (i + 1) + ". https://t.me/SvoiLogisticsBot?start=" + newOrg[i].link + "\n";
         }
         bot.sendMessage(chatId, txt);
-    // }
+    }
 });
+
+bot.onText(/^\/search/, async function(msg,match){
+
+    const chatId= msg.from.id
+    let finedOrder =await getSql("finedOrder", "chat_id = " + chatId)//ищет пользователся в поиске
+    let rangeRegions = JSON.parse(finedOrder[0].region_id)//выбранные регионы
+
+    const sql = `SELECT * FROM orders_regions , orders
+                 WHERE orders_regions.status=1 and orders.status=1
+                 AND orders.id =orders_regions.order_id and FIND_IN_SET(orders_regions.region_id, '${rangeRegions}')`
+    const orders = await querySQL(sql)//формируем запросы на заказы по заданным регионам
+    var inline_keyboard = [];
+    for (var i = 0; i < orders.length; i++) {
+        inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам
+    }
+    inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
+
+    // let addRegion = `UPDATE finedOrder
+    //                  SET status = '1'
+    //                  WHERE chat_id = '${chatId}' `;
+    // await db.query(addRegion)//меняем статус пользователя  на активный
+
+    var text = "<b>Поиск заданий</b>\nРайон(-ы):"
+    if (orders.length > 0)
+        text += "\n\nИли выберете из списка ниже:";
+    var result = {
+        parse_mode: "HTML",
+        reply_markup: JSON.stringify({inline_keyboard})
+    };
+    bot.sendMessage(chatId, text, result)
+})
 
 function toENG(text) {
     var text = text.toUpperCase();
@@ -319,9 +357,9 @@ bot.on('message', async function (msg, match) {
             bot.sendMessage(user.chat_id, "Транспорт с номерным знаком: <b>" + msg.text + "</b> не найден\n\n<b>Напишите гос. номер вашего автомобиля</b>", result);
         }
 
-    } else {//если не реигстраци , шаг 3+
+    } else {//если не регистрация , шаг 3+
 
-        bot.deleteMessage(chatId, msg.message_id);
+        bot.deleteMessage(chatId, msg.message_id);//удаления текста который писал пользователь чтобы не засорять чат
         if (user.admin)
             var order = await getSql('orders', '(title is null or description is null) and user_id=' + user.id);
 
@@ -401,7 +439,13 @@ bot.on('message', async function (msg, match) {
                     db.query("DELETE FROM `finedOrder` WHERE chat_id=" + chatId);
                 }
                 console.log("menu");
-                finedOrder(chatId);//если нет активных заказов предлагаем найти заказ
+
+                let deleteChoosedRegions = `UPDATE finedOrder
+                         SET region_id = '[]'
+                         WHERE chat_id = '${chatId}' `;
+                await db.query(deleteChoosedRegions)
+
+                await finedOrder(chatId);//если нет активных заказов предлагаем найти заказ
                 break;
             case "Просмотр задания":
                 var execution_order = await getSql('execution_order', 'user_id=' + user.id);
@@ -442,22 +486,39 @@ bot.on('message', async function (msg, match) {
 
 });
 
-async function finedOrder(chatId) {
+async function finedOrder(chatId,flags=[],messageId) {
     var regions = await getSql('regions', 'status=1');//получаем все регионы
     var inline_keyboard = [];
     for (var i = 0; i < regions.length; i++) {
-        inline_keyboard.push([{text: regions[i].title, callback_data: "finedOrder_" + regions[i].id}]);
+        text = flags && flags.length && flags.find(item => item == i+1) ?"✅ " + `${regions[i].title}` : "➖ " + `${regions[i].title}`
+        const district = {text, callback_data: "finedOrder_" + regions[i].id}
+        inline_keyboard.push([district]);
     }//делаем пуш для кнопок всех регионов
+
     var result = {
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
-    bot.sendMessage(chatId, "<b>Выберете раён поиска</b>", result)//отправляем районы поиска пользователю
-        .then(async function (callback) {//сохраняем новый  finedOrder
-            console.log(callback)
-        var user = await getSql("users", "chat_id=" + chatId);
-        await db.query("INSERT INTO `finedOrder`(`user_id`,`message_id`, `chat_id`) VALUES ('" + user[0].id + "','" + callback.message_id + "','" + chatId + "')");
-    });
+
+    if (flags.length) {// после нажатия на регион
+        var result = {
+            chat_id: chatId,
+            message_id: +messageId,
+            reply_markup: JSON.stringify({inline_keyboard}),
+            parse_mode: "HTML"
+        };
+        await bot.editMessageText("<b>1.Выберете район(-ы) </b><b>\n 2.Для поиска введите /search</b>", result)
+
+    } else {// после нажатия на клавишу Поиск заказа
+        bot.sendMessage(chatId, "<b>1.Выберете район(-ы) </b><b>\n2.Для поиска введите /search</b>", result)//отправляем районы поиска пользователю
+            .then(async function (callback) {//сохраняем новый  finedOrder
+                console.log(callback)
+                if (!flags.length) {
+                    var user = await getSql("users", "chat_id=" + chatId);
+                    await db.query("INSERT INTO `finedOrder`(`user_id`,`message_id`, `chat_id`) VALUES ('" + user[0].id + "','" + callback.message_id + "','" + chatId + "')");
+                }
+            });
+    }
 }
 
 async function createOffer(msg, user) {
@@ -721,7 +782,7 @@ bot.on('callback_query', async function (msg) {
         var inline_keyboard = [];
         inline_keyboard.push([{text: "Задания на выполнении", callback_data: "acceptOrder_"}]);
         inline_keyboard.push([{text: "Ожидают исполнителей", callback_data: "holdOrder_"}]);
-        inline_keyboard.push([{text: "Отправиь задание", callback_data: "sendOrder_"}]);
+        inline_keyboard.push([{text: "Отправить задание", callback_data: "sendOrder_"}]);
         inline_keyboard.push([{text: "Создать задание", callback_data: "createOrder_"}]);
         var result = {
             chat_id: chatId,
@@ -743,7 +804,7 @@ bot.on('callback_query', async function (msg) {
                 inline_keyboard.push([{text: orders[i].title, callback_data: "sendOrder_" + orders[i].id}]);
             }
             text = "<b>Выберете задание для отправки</b>";
-        } else if (!region) {//
+        } else if (!region) {//значит регион не выбран , отправляем админу выбор регионов
             var regions = await getSql('regions', 'status=1');
             for (var i = 0; i < regions.length; i++) {
                 inline_keyboard.push([{
@@ -752,11 +813,11 @@ bot.on('callback_query', async function (msg) {
                 }]);
             }
             text = "<b>Выберете район по каторому будет отправка</b>";
-        } else {
+        } else {//значит регион выбран , оформляем задание и записываем в базу
             var checkActiv = await getSql('orders_regions', 'region_id=' + region + ' and order_id=' + id);
             if (checkActiv.length <= 0) {
-                db.query("INSERT INTO `orders_regions`(`region_id`, `order_id`) VALUES (" + region + "," + id + ")");
-                db.query("UPDATE `orders` SET `status`=1 WHERE id=" + id);
+                db.query("INSERT INTO `orders_regions`(`region_id`, `order_id`) VALUES (" + region + "," + id + ")");//на этом этапе записываем orders_regions
+                db.query("UPDATE `orders` SET `status`=1 WHERE id=" + id);//переводим в статус режима ожидания пока задание кто-то возьмет
 
                 var regions = await getSql('finedOrder', 'status=1 and region_id=' + region);
                 text = "Пользователей ожидающих задания в этом районе: <b>" + regions.length + "</b>\nИдет отправка, ожидайте ...";
@@ -973,27 +1034,20 @@ bot.on('callback_query', async function (msg) {
         });
     }
     if (msg.data.indexOf('finedOrder_') == 0) {// после выбора района
-        var region = parseInt(msg.data.split('_')[1]);
-        var regions = await getSql('regions', 'id=' + region);
-        var orders = await getSql('orders_regions, orders','orders.status=1 and orders_regions.status=1 AND orders.id=orders_regions.order_id and orders_regions.region_id='+region, 'orders.title, orders.id');
-        var inline_keyboard = [];
-        for (var i = 0; i < orders.length; i++) {
-            inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);
-        }
-        inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
-        var result = {
-            chat_id: chatId,
-            message_id: msg.message.message_id,
 
-            parse_mode: "HTML",
-            reply_markup: JSON.stringify({inline_keyboard})
-        };
+        const fromChatId = msg.from.id
+        let choosedRegion = parseInt(msg.data.split('_')[1]);//регион который выбрал пользователь
 
-        db.query("UPDATE `finedOrder` SET `region_id`=" + region + ", status=1 WHERE chat_id=" + chatId);
-        var text = "<b>Поиск заданий</b>\nРайон: <b>" + regions[0].title + "</b>";
-        if (orders.length > 0)
-            text += "\n\nИли выберете из списка ниже:";
-        bot.editMessageText(text, result);
+        let  flags = await getSql("finedOrder", "chat_id = " + fromChatId);
+             flags = JSON.parse(flags[0].region_id)
+
+        if(!flags.find(item => item == choosedRegion)) flags.push(choosedRegion)
+
+        let addRegion = `UPDATE finedOrder
+                         SET region_id = '[${flags}]'
+                         WHERE chat_id = '${fromChatId}' `;
+        await db.query(addRegion)
+        await finedOrder(chatId,flags,msg.message.message_id)
     }
     callbackEnd(chatId, msg.id, answerCallback);
     return;
@@ -1052,4 +1106,13 @@ function getEntities(text, entities) {
         newText += text[i];
     }
     return newText;
+}
+
+function querySQL(condition){
+    return new Promise((resolve,reject)=>{
+        db.query(condition, (err ,result)=>{
+            if(err) console.log(err)
+            resolve(result)
+        })
+    })
 }
