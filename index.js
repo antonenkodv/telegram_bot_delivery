@@ -1,6 +1,9 @@
 const mysql = require('mysql');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios')
+const fs = require('fs')
+const path = require('path')
+
 require('dotenv').config()
 const {DB_HOST,DB_USER,DB_PASSWORD,DB_DATABASE,TG_TOKEN,GAI_KEY} = process.env
 
@@ -43,12 +46,12 @@ function handleDisconnect() {
 
 handleDisconnect();
 
-bot.setMyCommands([
-    {command: '/start', description: 'начало регистрации'},
-    {command: '/new', description: 'создание админа'},
-    {command: '/admin', description: 'действия админа'},
-
-])
+// bot.setMyCommands([
+//     {command: '/start', description: 'начало регистрации'},
+//     {command: '/new', description: 'создание админа'},
+//     {command: '/admin', description: 'действия админа'},
+//
+// ])
 function getUser(msg, type = 0) {
     return new Promise(resolve => {
         if (msg.text && type == 0)
@@ -113,7 +116,9 @@ function setProfile(user) {
             setPhone(user);
         else if (!user.digits)
             setDigits(user);
-        else if (!user.digits || !user.phone)
+        else if (!user.photo)
+            setAutoImage(user)
+        else if (!user.digits || !user.phone || !user.photo)
             resolve(false);
         else {
             resolve(true);
@@ -146,12 +151,40 @@ function setDigits(user) {
         db.query("UPDATE `users` SET `digits`=NULL WHERE id=" + user.id)
     }
     var result = {
-
         parse_mode: "HTML"
     };
     bot.sendMessage(user.chat_id, "<b>Напишите гос. номер вашего автомобиля</b>", result);
 }
 
+
+function setAutoImage(user){
+    if (user.photo) {
+        db.query("UPDATE `users` SET `photo`=NULL WHERE id=" + user.id)
+    }
+    var result = {
+        parse_mode: "HTML"
+    };
+    bot.sendMessage(user.chat_id, "<b>Прикрепите фотографию авто</b>", result);
+}
+async function uploadImage(image) {
+
+    const {file_id: fileId, file_unique_id: uniqueId} = image
+    const filePath = path.join( 'public', 'images', `${uniqueId}.jpg`)
+    const writeStream = fs.createWriteStream(filePath)
+    const imageFile = await bot.getFile(fileId);
+    const fileLink = await bot.getFileLink(imageFile.file_id)
+    const response = await axios({
+        url: fileLink ,
+        method: 'GET',
+        responseType: 'stream'
+    })
+
+    return new Promise((resolve, reject) => {
+         response.data.pipe(writeStream)
+            .on('finish', (_) => resolve(`${uniqueId}.jpg`))
+            .on('error', err => reject(err))
+    })
+}
 bot.onText(/^\/start/, async function (msg, match) {
     const chatId = msg.from.id;
     var user = await getUser(msg);
@@ -222,10 +255,10 @@ bot.onText(/^\/search/, async function(msg,match){
     }
     inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
 
-    // let addRegion = `UPDATE finedOrder
-    //                  SET status = '1'
-    //                  WHERE chat_id = '${chatId}' `;
-    // await db.query(addRegion)//меняем статус пользователя  на активный
+    let setStatusInProcess = `UPDATE finedOrder
+                              SET status = '1'
+                              WHERE chat_id = '${chatId}' `;
+    await db.query(setStatusInProcess)//меняем статус пользователя  на активный
 
     var text = "<b>Поиск заданий</b>\nРайон(-ы):"
     if (orders.length > 0)
@@ -262,7 +295,6 @@ function toENG(text) {
 
 bot.on('message', async function (msg, match) {
     const chatId = msg.from.id;
-    const text = msg.text
     if (msg.entities && msg.entities[0].type == 'bot_command')
         return;
 
@@ -325,19 +357,45 @@ bot.on('message', async function (msg, match) {
                 let result = {
                     parse_mode: "HTML"
                 };
-                bot.sendMessage(user.chat_id, "Ваш транспорт:\nМодель: <b>" +
-                    vendor + " " +
-                    model + " " +
-                    model_year +
-                    "</b>\nТип: <b>" +
-                    operations[0].kind.ua +
-                    "</b>\nЦвет: <b>" +
-                    operations[0].color.ua +
-                    "</b>", result);
-
                 user.digits = digits;
-                var res = await setProfile(user);
-                if (res) {
+
+                await setProfile(user);
+            }
+        } catch (err) {
+            console.log('[ERROR]', err);
+            bot.sendMessage(user.chat_id, "Транспорт с номерным знаком: <b>" + msg.text + "</b> не найден\n\n<b>Напишите гос. номер вашего автомобиля</b>", result);
+        }
+
+    } else if (!user.admin && !user.photo) {//добавить фото автомобиля
+        if (msg.photo) {
+            try {
+                let biggestImage = msg.photo[msg.photo.length - 1]
+                const fileName = await uploadImage(biggestImage)//сохраняем локально
+                let sql = `UPDATE users
+                           SET photo = '${fileName}'
+                           WHERE chat_id = '${chatId}' `;
+                db.query(sql)//сохраняем ссылку на image в бд
+                const condition = `SELECT vehicles.vendor ,
+                                          vehicles.model ,
+                                          vehicles.model_year ,
+                                          vehicles.color ,
+                                          vehicles.kind
+                                   FROM users, vehicles
+                                   WHERE users.digits=vehicles.digits and users.chat_id='${chatId}'`
+                const userVehicle = await querySQL(condition)
+                const {vendor, model, model_year, color, kind} = userVehicle[0]
+                await bot.deleteMessage(chatId, msg.message_id)
+                await bot.sendMessage(user.chat_id, "Ваш транспорт:<b>" +
+                    "</b>\nТип: <b>" +
+                    kind +
+                    "</b>\nЦвет: <b>" +
+                    color +
+                    "</b>", {parse_mode: "HTML"});
+                await bot.sendPhoto(chatId, biggestImage.file_id,
+                    {parse_mode: "HTML", caption:"<b>" + vendor + " " + model + " " + model_year + "</b>"})
+
+                user.photo = fileName
+                if (await setProfile(user)) {
                     result = {
                         parse_mode: "HTML",
                         reply_markup: JSON.stringify({
@@ -349,15 +407,14 @@ bot.on('message', async function (msg, match) {
                             ]
                         })
                     };
-                    bot.sendMessage(user.chat_id, "<b>Регистрация завершена, можете начать поиска заказа</b>", result);
+                    bot.sendMessage(user.chat_id, "<b>Регистрация завершена, можете начать поиск</b>", result);
                 }
+            } catch (err) {
+                console.log(err)
+                bot.sendMessage(user.chat_id, "<b>Что-то пошло не так , повторите попытку снова</b>", {parse_mode: "HTML"});
             }
-        } catch (err) {
-            console.log('[ERROR]', err);
-            bot.sendMessage(user.chat_id, "Транспорт с номерным знаком: <b>" + msg.text + "</b> не найден\n\n<b>Напишите гос. номер вашего автомобиля</b>", result);
         }
-
-    } else {//если не регистрация , шаг 3+
+    }else {//если не регистрация , шаг 4+
 
         bot.deleteMessage(chatId, msg.message_id);//удаления текста который писал пользователь чтобы не засорять чат
         if (user.admin)
@@ -503,7 +560,7 @@ async function finedOrder(chatId,flags=[],messageId) {
     if (flags.length) {// после нажатия на регион
         var result = {
             chat_id: chatId,
-            message_id: +messageId,
+            message_id: messageId,
             reply_markup: JSON.stringify({inline_keyboard}),
             parse_mode: "HTML"
         };
@@ -596,8 +653,9 @@ async function createOffer(msg, user) {
 }
 
 function callbackEnd(chatId, id, answerCallback = {}) {
-    callback_query_click[chatId] = false;
-    bot.answerCallbackQuery(id, answerCallback);//обязательный ответ в телеграмме
+        global_message_id = id
+        callback_query_click[chatId] = false;
+        bot.answerCallbackQuery(id, answerCallback);//обязательный ответ в телеграмме
 }
 
 var callback_query_click = [];
@@ -668,7 +726,7 @@ function forSend(chatId, text, result) {
         })
     });
 }
-
+let global_message_id = 0
 bot.on('callback_query', async function (msg) {
     var answerCallback = {};
     const chatId = msg.message.chat.id;
@@ -1041,7 +1099,8 @@ bot.on('callback_query', async function (msg) {
         let  flags = await getSql("finedOrder", "chat_id = " + fromChatId);
              flags = JSON.parse(flags[0].region_id)
 
-        if(!flags.find(item => item == choosedRegion)) flags.push(choosedRegion)
+        if(!flags.find(item => item == choosedRegion))flags.push(choosedRegion)
+        else return
 
         let addRegion = `UPDATE finedOrder
                          SET region_id = '[${flags}]'
