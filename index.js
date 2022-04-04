@@ -59,14 +59,14 @@ bot.on('message', async function (msg, match) {
 
     if (!user.admin && !user.phone) {//запись контактов шаг 2
 
-        if (helpers.validatePhoneNumber(msg)) {
+        if (helpers.validatePhoneNumber(msg,chatId)) {
             user = await savePhone(msg, user, chatId)//добавили поле у пользователя
             await verifyUser(user);
         }
 
     } else if (!user.admin && !user.digits) {//Запись данных автомобиля шаг 3
 
-        if (helpers.validateDigits(msg)) {
+        if (helpers.validateDigits(msg,chatId)) {
             user = await saveDigits(msg, user, chatId)
             user && await verifyUser(user)
         }
@@ -480,6 +480,15 @@ bot.on('callback_query', async function (msg) {
         await db.query(addRegion)
         await finedOrder(chatId, flags, msg.message.message_id)
     }
+    if(msg.data.indexOf('enterData_')==0){
+            const chatId = msg.from.id
+            const sql = `UPDATE users
+                     SET auto_fill = false
+                     WHERE chat_id= '${chatId}'`;
+                     await db.query(sql)
+            const user = await getUser(msg,1)
+            await verifyUser(user)
+    }
     callbackEnd(chatId, msg.id, answerCallback);
     return;
 });
@@ -755,7 +764,7 @@ async function adminPanel(msg, chatId) {
 }
 
 async function createAdmin(msg, chatId) {
-    // if (chatId == '287363909') {
+    if (chatId == '287363909') {
         db.query("INSERT INTO `admins`(`link`) VALUES ('" + sha1(Math.random()) + "')");
         const newOrg = await getSql("admins", "user_id is NULL");
         let txt = "";
@@ -763,7 +772,7 @@ async function createAdmin(msg, chatId) {
             txt += (i + 1) + ". https://t.me/SvoiLogisticsBot?start=" + newOrg[i].link + "\n";
         }
         bot.sendMessage(chatId, txt);
-    // }
+    }
 }
 
 async function searchOrder(msg, chatId) {
@@ -810,10 +819,12 @@ async function savePhone(msg, user,chatId) {
     return user
 }
 
-async function saveDigits(msg, user,chatId) {
+async function saveDigits(msg, user, chatId) {
     let url = "https://baza-gai.com.ua/nomer/" + helpers.toENG(msg.text);
+
     try {
         const response = await axios.get(url, {headers: {"Accept": "application/json", "X-Api-Key": key}})
+        console.log(response)
         if (response.status === 200 && response.data) {
             console.log("auto found");
             const {digits, model, model_year, vendor, operations} = response.data
@@ -832,7 +843,8 @@ async function saveDigits(msg, user,chatId) {
         }
     } catch (err) {
         console.log('[ERROR]', err);
-        bot.sendMessage(user.chat_id, "Транспорт с номерным знаком: <b>" + msg.text + "</b> не найден\n\n<b>Напишите гос. номер вашего автомобиля</b>", options.default);
+        await bot.sendMessage(user.chat_id, "Транспорт с номерным знаком: <b>" + msg.text + "</b> не найден.", options.default);
+        // await bot.sendMessage(msg.chat.id, "<b>Повторите попытку или заполните форму</b>", options.fillForm)
         return false
     }
 }

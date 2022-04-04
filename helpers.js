@@ -23,7 +23,7 @@ module.exports = {
         }
         return text;
     },
-    validatePhoneNumber(msg){
+    validatePhoneNumber(msg,chatId){
         if (!msg.contact && !msg.text.match(/^\+380\d{3}\d{2}\d{2}\d{2}$/)) {
             let result = {
                 parse_mode: "HTML",
@@ -36,14 +36,14 @@ module.exports = {
                     ]
                 })
             };
-            bot.sendMessage(user.chat_id, "Не верный формат, отправьте номер телефона в вормате: <b>+380xxxxxxxxx</b>\nИли поделитесь контактом", result);
+            bot.sendMessage(chatId, "Не верный формат, отправьте номер телефона в вормате: <b>+380xxxxxxxxx</b>\nИли поделитесь контактом", result);
             return false
         }
         return true
     },
-    validateDigits(msg){
+    validateDigits(msg,chatId){
         if (msg.text.length > 8) {
-             bot.sendMessage(user.chat_id, "Не верный формат, номер не может быть длиннее 8-ми символов", {parse_mode:"HTML"});
+             bot.sendMessage(chatId, "Не верный формат, номер не может быть длиннее 8-ми символов", {parse_mode:"HTML"});
              return false
         }
         return true

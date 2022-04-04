@@ -49,5 +49,13 @@ module.exports={
                 }]
             ]
         })
+    },
+    fillForm : {
+        parse_mode: "HTML",
+        reply_markup: JSON.stringify({
+            inline_keyboard: [
+                [{text: 'Заполнить форму', callback_data: 'enterData_'}],
+            ]
+        })
     }
 }
