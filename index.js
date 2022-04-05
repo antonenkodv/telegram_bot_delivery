@@ -6,6 +6,7 @@ const helpers = require('./helpers')
 const options = require('./options')
 const {bot} = require('./bot')
 const sha1 = require('sha1');
+const promisify = require('util').promisify;
 require('dotenv').config()
 const {DB_HOST, DB_USER, DB_PASSWORD, DB_DATABASE, GAI_KEY} = process.env
 
@@ -17,6 +18,16 @@ let mysqlInfo = {
     database: DB_DATABASE,
     charset: 'utf8mb4_general_ci'
 };
+const aws = {
+    accessKeyId: process.env.ACCESS_KEY_ID,
+    secretAccessKey: process.env.SECRET_ACCESS_KEY,
+    region: process.env.REGION
+}
+let AWS = require('aws-sdk');
+AWS.config.setPromisesDependency();
+AWS.config.update(aws)
+const s3 = new AWS.S3()
+
 
 process.env["NTBA_FIX_350"] = 1;
 
@@ -59,25 +70,25 @@ bot.on('message', async function (msg, match) {
 
     if (!user.admin && !user.phone) {//запись контактов шаг 2
 
-        if (helpers.validatePhoneNumber(msg,chatId)) {
+        if (helpers.validatePhoneNumber(msg, chatId)) {
             user = await savePhone(msg, user, chatId)//добавили поле у пользователя
             await verifyUser(user);
         }
 
     } else if (!user.admin && !user.digits) {//Запись данных автомобиля шаг 3
 
-        if (helpers.validateDigits(msg,chatId)) {
+        if (helpers.validateDigits(msg, chatId)) {
             user = await saveDigits(msg, user, chatId)
             user && await verifyUser(user)
         }
 
     } else if (!user.admin && !user.photo) {//добавить фото автомобиля
 
-        if (msg.photo) {
+        if (msg.photo || msg.document) {
             await saveImage(msg, user, chatId)
         }
 
-    } else {//если не регистрация , шаг 4+
+    } else { //если не регистрация , шаг 4+
 
         bot.deleteMessage(chatId, msg.message_id);//удаления текста который писал пользователь чтобы не засорять чат
         if (user.admin) {
@@ -96,7 +107,6 @@ bot.on('message', async function (msg, match) {
             }
             return;
         }
-        ''
         switch (msg.text) {
             case "Поиск заказа":
                 var execution_order = await getSql('execution_order', 'user_id=' + user.id);//поиск активных заказов
@@ -128,9 +138,19 @@ bot.on('message', async function (msg, match) {
                 }
                 break;
             case"Настройки":
+                const result = await getSql("vehicles", "digits='" + user.digits + "'");
+                const {vendor, model, model_year, kind, color} = result[0]
+                let vehicleInfo = "\n\n<i>Информация о ТС:</i> \nМодель: <b>" + vendor + " " + model + " " + model_year + "</b>\nТип: <b>" + kind + "</b>\nЦвет: <b>" + color + "</b>";
+                const photo = user.photo
+                await bot.sendPhoto(chatId, photo, {parse_mode: "HTML", caption: vehicleInfo})
+                await bot.sendMessage(chatId, "<b>Настройки</b>", JSON.parse(JSON.stringify({
+                    ...options.settings,
+                    chat_id: chatId
+                })));
+                return
                 break;
             default:
-                bot.sendMessage(user.chat_id, "<b>Главное меню</b>", options.mainMenu);
+                return bot.sendMessage(chatId, "<b>Главное меню</b>", options.mainMenu);
                 break;
         }
 
@@ -192,7 +212,7 @@ bot.on('callback_query', async function (msg) {
         db.query("DELETE FROM `execution_order` WHERE order_id=" + order[0].id);
         db.query("INSERT INTO `orders_end`(`id_user`, `order_id`) VALUES (" + user[0].id + "," + order[0].id + ")");
 
-        bot.sendMessage(user[0].chat_id, "<b>" + order[0].title + "</b>\n\n" + order[0].description + "\n\nЗадание завершено ✅", options.searchOrder)
+        bot.sendMessage(user[0].chat_id, "<b>" + order[0].title + "</b>\n\n" + order[0].description + "\n\nЗадание завершено ✅", options.mainMenu)
     }
     if (msg.data.indexOf('executionOrder_') == 0) {//
         var order = parseInt(msg.data.split('_')[1]);
@@ -322,7 +342,7 @@ bot.on('callback_query', async function (msg) {
         };
         bot.editMessageText("<b>Что вас интересует?</b>", result);
     }
-    if (msg.data.indexOf('createOrder_') == 0) {//
+    if (msg.data.indexOf('createOrder_') == 0) {
         var id = parseInt(msg.data.split('_')[1]);
         var user = await getUser(msg, 1);
         if (id) {
@@ -393,10 +413,10 @@ bot.on('callback_query', async function (msg) {
         }
 
     }
-    if (msg.data.indexOf('getOrdet_') == 0) {//
-        var id = parseInt(msg.data.split('_')[1]);
-        var user = await getSql("users", "chat_id=" + chatId);
-        var vehicle = await getSql("vehicles", "digits='" + user[0].digits + "'");
+    if (msg.data.indexOf('getOrdet_') == 0) {
+        let id = parseInt(msg.data.split('_')[1]);
+        let user = await getSql("users", "chat_id=" + chatId);
+        let vehicle = await getSql("vehicles", "digits='" + user[0].digits + "'");
         db.query("DELETE FROM `orders_regions` WHERE order_id=" + id);
         db.query("UPDATE `orders` SET status=2 WHERE id=" + id);
         db.query("DELETE FROM `messages` WHERE chat_id=" + chatId + " and order_id=" + id);
@@ -480,14 +500,39 @@ bot.on('callback_query', async function (msg) {
         await db.query(addRegion)
         await finedOrder(chatId, flags, msg.message.message_id)
     }
-    if(msg.data.indexOf('enterData_')==0){
-            const chatId = msg.from.id
-            const sql = `UPDATE users
+    if (msg.data.indexOf('changeAuto_') == 0) {
+        try {
+            bot.deleteMessage(chatId, msg.message.message_id)
+            bot.deleteMessage(chatId, msg.message.message_id - 1)
+            let user = await getUser(msg, 1)
+            const {digits} = user
+            let sql = `DELETE FROM vehicles
+                   WHERE digits = '${digits}'`
+            await db.query(sql)
+            sql = `UPDATE users
+               SET digits = null , photo = null
+               WHERE chat_id = '${chatId}'`
+            await db.query(sql)
+            user.digits = null
+            await verifyUser(user)
+        } catch (err) {
+            console.log(err)
+            bot.sendMessage(chatId, "Ошибка!Попробуйте еще раз...")
+        }
+    }
+    if (msg.data.indexOf('backToMenu_') == 0) {
+        bot.deleteMessage(chatId, msg.message.message_id)
+        bot.deleteMessage(chatId, msg.message.message_id - 1)
+        bot.sendMessage(chatId, "<b>Главное меню</b>", options.mainMenu);
+    }
+    if (msg.data.indexOf('enterData_') == 0) {
+        const chatId = msg.from.id
+        const sql = `UPDATE users
                      SET auto_fill = false
                      WHERE chat_id= '${chatId}'`;
-                     await db.query(sql)
-            const user = await getUser(msg,1)
-            await verifyUser(user)
+        await db.query(sql)
+        const user = await getUser(msg, 1)
+        await verifyUser(user)
     }
     callbackEnd(chatId, msg.id, answerCallback);
     return;
@@ -517,6 +562,7 @@ async function editMessages(order) {
         }, 300);
     }
 }
+
 async function finedOrder(chatId, flags = [], messageId) {
     var regions = await getSql('regions', 'status=1');//получаем все регионы
     var inline_keyboard = [];
@@ -616,6 +662,7 @@ function getSql(table, params = 1, select = '*') {
         });
     });
 }
+
 function getUser(msg, type = 0) {
     return new Promise(resolve => {
         if (msg.text && type == 0)
@@ -718,13 +765,31 @@ function imageMessage(user) {
     return false
 }
 
-async function uploadImage(image) {
+async function putToBucket(file, key) {
+    const s3 = new AWS.S3({
+        params:
+            {Bucket: 'posters.images'}
+    })
+    var params = {
+        Key: `${key}`,
+        Body: file,
+        ACL: 'public-read',
+    }
+
+    await s3.upload(params).promise().then(response => console.log(response, 'Item was upload'),
+        err => {
+            throw new Error(err)
+        })
+}
+
+async function uploadLocalImage(image) {
 
     const {file_id: fileId, file_unique_id: uniqueId} = image
     const filePath = path.join('public', 'images', `${uniqueId}.jpg`)
     const writeStream = fs.createWriteStream(filePath)
     const imageFile = await bot.getFile(fileId);
     const fileLink = await bot.getFileLink(imageFile.file_id)
+
     const response = await axios({
         url: fileLink,
         method: 'GET',
@@ -742,7 +807,7 @@ async function start(msg) {
     const user = await getUser(msg);
     const res = await verifyUser(user);
     if (res) {
-        bot.sendMessage(user.chat_id, "<b>Главное меню</b>", options.searchOrder);
+        bot.sendMessage(user.chat_id, "<b>Главное меню</b>", options.mainMenu);
     }
 }
 
@@ -764,7 +829,7 @@ async function adminPanel(msg, chatId) {
 }
 
 async function createAdmin(msg, chatId) {
-    if (chatId == '287363909') {
+    // if (chatId == '287363909') {
         db.query("INSERT INTO `admins`(`link`) VALUES ('" + sha1(Math.random()) + "')");
         const newOrg = await getSql("admins", "user_id is NULL");
         let txt = "";
@@ -772,7 +837,7 @@ async function createAdmin(msg, chatId) {
             txt += (i + 1) + ". https://t.me/SvoiLogisticsBot?start=" + newOrg[i].link + "\n";
         }
         bot.sendMessage(chatId, txt);
-    }
+    // }
 }
 
 async function searchOrder(msg, chatId) {
@@ -808,7 +873,7 @@ async function searchOrder(msg, chatId) {
     bot.sendMessage(chatId, text, result)
 }
 
-async function savePhone(msg, user,chatId) {
+async function savePhone(msg, user, chatId) {
     if (msg.contact) {
         db.query("UPDATE `users` SET phone='" + msg.contact.phone_number + "' WHERE chat_id=" + chatId);
         user.phone = msg.contact.phone_number;
@@ -849,14 +914,47 @@ async function saveDigits(msg, user, chatId) {
     }
 }
 
-async function saveImage(msg,user,chatId) {
+async function uploadToS3(fileName) {
+    const readFile = promisify(fs.readFile);
+    const data = await readFile(path.join('public', 'images', `${fileName}`));//скачиваем файл
+
+    return s3.upload({
+        Bucket: 'svoi.images',
+        Key: `${fileName}`,
+        Body: data,
+        ContentType: 'image/png',
+        ACL: 'public-read',
+        CacheControl: 'max-age=0',
+    })
+        .promise()
+        .then(response => response.Location,
+            err => {
+                throw new Error(err)
+            })
+}
+
+async function saveImage(msg, user, chatId) {
     try {
-        let biggestImage = msg.photo[msg.photo.length - 1]
-        const fileName = await uploadImage(biggestImage)//сохраняем локально
+        let type = ''
+        let biggestImage = null
+
+        if (msg.photo) {
+            biggestImage = msg.photo[msg.photo.length - 1]
+            type = 'photo'
+        } else if (msg.document) {
+            biggestImage = msg.document.thumb
+            type = 'document'
+        }
+        if (!biggestImage) return
+
+        const fileName = await uploadLocalImage(biggestImage)//сохраняем локальнo и получаем название файла
+        const location = await uploadToS3(fileName, chatId)
         let sql = `UPDATE users
-                           SET photo = '${fileName}'
-                           WHERE chat_id = '${chatId}' `;
+                   SET photo = '${location}'
+                   WHERE chat_id = '${chatId}'`;
         db.query(sql)//сохраняем ссылку на image в бд
+        fs.unlinkSync(path.join('public', 'images', `${fileName}`))
+
         const condition = `SELECT vehicles.vendor ,
                                           vehicles.model ,
                                           vehicles.model_year ,
@@ -873,12 +971,20 @@ async function saveImage(msg,user,chatId) {
             "</b>\nЦвет: <b>" +
             color +
             "</b>", {parse_mode: "HTML"});
-        await bot.sendPhoto(chatId, biggestImage.file_id, {parse_mode: "HTML", caption: "<b>" + vendor + " " + model + " " + model_year + "</b>"})
+
+        if (type === 'photo') await bot.sendPhoto(chatId, biggestImage.file_id, {
+            parse_mode: "HTML",
+            caption: "<b>" + vendor + " " + model + " " + model_year + "</b>"
+        })
+        if (type === 'document') await bot.sendDocument(chatId, msg.document.file_id, {
+            parse_mode: "HTML",
+            caption: "<b>" + vendor + " " + model + " " + model_year + "</b>"
+        })
 
         user.photo = fileName
 
         if (await verifyUser(user)) {
-            bot.sendMessage(user.chat_id, "<b>Регистрация завершена, можете начать поиск</b>", options.searchOrder);
+            bot.sendMessage(user.chat_id, "<b>Регистрация завершена, можете начать поиск</b>", options.mainMenu);
         }
     } catch (err) {
         console.log('[ERROR]', err)
@@ -887,21 +993,21 @@ async function saveImage(msg,user,chatId) {
     }
 }
 
-async function saveOrderTitle(msg,chatId,order){
-        let inline_keyboard = [];
-        inline_keyboard.push([{text: msg.text, callback_data: "_"}]);
-        inline_keyboard.push([{
-            text: "🔄 Отменить",
-            callback_data: "createOrder_" + order.id
-        }, {text: "Удалить ❌", callback_data: "deleteOrder_" + order.id}]);
-        let result = {
-            chat_id: chatId,
-            message_id: order.message_id,
-            parse_mode: "HTML",
-            reply_markup: JSON.stringify({inline_keyboard})
-        };
-        bot.editMessageText("Название: \n<b>" + msg.text + "</b> \nПроверьте ниже⬇️ \nТак будет выглядеть  название в списке. \n\n<b>Введите описание до 700 символов</b>", result);
-        db.query("UPDATE `orders` SET `title`=" + mysql.escape(msg.text) + " WHERE id=" + order.id);
+async function saveOrderTitle(msg, chatId, order) {
+    let inline_keyboard = [];
+    inline_keyboard.push([{text: msg.text, callback_data: "_"}]);
+    inline_keyboard.push([{
+        text: "🔄 Отменить",
+        callback_data: "createOrder_" + order.id
+    }, {text: "Удалить ❌", callback_data: "deleteOrder_" + order.id}]);
+    let result = {
+        chat_id: chatId,
+        message_id: order.message_id,
+        parse_mode: "HTML",
+        reply_markup: JSON.stringify({inline_keyboard})
+    };
+    bot.editMessageText("Название: \n<b>" + msg.text + "</b> \nПроверьте ниже⬇️ \nТак будет выглядеть  название в списке. \n\n<b>Введите описание до 700 символов</b>", result);
+    db.query("UPDATE `orders` SET `title`=" + mysql.escape(msg.text) + " WHERE id=" + order.id);
 
 }
 
@@ -945,7 +1051,8 @@ function getEntities(text, entities) {
     }
     return newText;
 }
-async function saveOrderDesc(msg,chatId,order){
+
+async function saveOrderDesc(msg, chatId, order) {
     let inline_keyboard = [];
     inline_keyboard.push([{text: order.title, callback_data: "_"}]);
     inline_keyboard.push([{
@@ -962,6 +1069,7 @@ async function saveOrderDesc(msg,chatId,order){
     bot.editMessageText("<b>Название:</b> \n" + order.title + " \n\n<b>Описание:</b> \n" + getEntities(msg.text, msg.entities), result);
     db.query("UPDATE `orders` SET `description`=" + mysql.escape(getEntities(msg.text, msg.entities)) + " WHERE id=" + order.id);
 }
+
 function querySQL(condition) {
     return new Promise((resolve, reject) => {
         db.query(condition, (err, result) => {
