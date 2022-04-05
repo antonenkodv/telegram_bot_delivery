@@ -46,15 +46,17 @@ module.exports={
             keyboard: [
                 [{
                     text: "Просмотр задания"
-                }]
+                }],
             ]
         })
     },
-    fillForm : {
+    settings: {
         parse_mode: "HTML",
         reply_markup: JSON.stringify({
-            inline_keyboard: [
-                [{text: 'Заполнить форму', callback_data: 'enterData_'}],
+            one_time_keyboard: true,
+           inline_keyboard: [
+                [{text: '🚗 Смена ТС ', callback_data: 'changeAuto_'},
+                    {text: '🔙 Назад', callback_data: 'backToMenu_'}],
             ]
         })
     }
