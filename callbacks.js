@@ -3,7 +3,7 @@ const options = require("./options");
 const functions = require("./functions");
 const db = require("./init_db")();
 
-async function callOrder(msg, chatId) {
+async function holdOrder(msg, chatId) {
     const orders = await functions.getSql('orders_regions, orders', 'orders.status=1 and orders_regions.status=1 AND orders.id=orders_regions.order_id', 'orders.title, orders.id');
     const inline_keyboard = [];
     for (let i = 0; i < orders.length; i++) {
@@ -442,7 +442,7 @@ async function editMessages(order) {
 }
 
 module.exports={
-    callOrder,
+    holdOrder,
     completeOrder,
     executionOrder,
     acceptOrder,
