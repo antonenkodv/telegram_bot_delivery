@@ -8,7 +8,8 @@ let mysqlInfo = {
     database: DB_DATABASE,
     charset: 'utf8mb4_general_ci'
 };
-function handleDisconnect() {
+
+module.exports=()=>{
     db = mysql.createConnection(mysqlInfo); // Recreate the connection, since // the old one cannot be reused
     db.connect(function (err) { // The server is either down
         if (err) { // or restarting (takes a while sometimes).
@@ -27,5 +28,3 @@ function handleDisconnect() {
     });
     return db
 }
-
-module.exports={handleDisconnect}

@@ -6,7 +6,7 @@ const options = require('./options')
 const {bot} = require('./bot')
 const promisify = require('util').promisify;
 const AWS = require("aws-sdk");
-const initDB = require("./init_db");
+const db = require("./init_db")();
 const s3 = new AWS.S3()
 const aws = {
     accessKeyId: process.env.ACCESS_KEY_ID,
@@ -15,8 +15,6 @@ const aws = {
 }
 AWS.config.setPromisesDependency();
 AWS.config.update(aws)
-
-const db = initDB.handleDisconnect();
 
 function getSql(table, params = 1, select = '*') {
     return new Promise(resolve => {
@@ -322,5 +320,5 @@ module.exports = {
     uploadToS3 ,
     getEntities,
     saveOrderDesc ,
-    querySQL
+    querySQL,
 }

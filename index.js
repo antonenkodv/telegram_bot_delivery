@@ -7,12 +7,10 @@ const options = require('./options')
 const {bot} = require('./bot')
 const callbacks = require('./callbacks')
 const functions = require('./functions')
-const initDB = require('./init_db')
+const db = require('./init_db')();
 const sha1 = require('sha1');
 require('dotenv').config()
 process.env["NTBA_FIX_350"] = 1;
-
-const db = initDB.handleDisconnect();
 
 bot.setMyCommands([
     {command: '/start', description: 'начало регистрации'},
