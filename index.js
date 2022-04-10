@@ -107,6 +107,10 @@ bot.on('message', async function (msg) {
 
         switch (text) {
             case "Поиск заказа":
+                const checkOrders =await functions.querySQL(`SELECT * FROM orders`)
+                if(!checkOrders.length){
+                return  bot.sendMessage(chatId, "😴<b>Корзина заказов пуста</b>",options.mainMenu);
+                }
                 var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);//поиск активных заказов
                 if (execution_order.length > 0) {
                     let order = await functions.getSql('orders', 'id=' + execution_order[0].order_id);
@@ -252,16 +256,19 @@ async function searchOrder(msg, chatId) {
 
     let finedOrder = await functions.getSql("finedOrder", "chat_id = " + chatId)//ищет пользователся в поиске
     if (!finedOrder.length) {
-
         bot.sendMessage(chatId, "<b>Пожалуйста,выберите регион</b>", options.searchOrder)
         return
     }
     let rangeRegions = JSON.parse(finedOrder[0].region_id)//выбранные регионы
+    let rangeDestinations = JSON.parse(finedOrder[0].destination_id)//множество значений
 
-    const sql = `SELECT * FROM orders_regions , orders
+    let sql = `SELECT * FROM orders_regions , orders
                  WHERE orders_regions.status=1 and orders.status=1
-                 AND orders.id =orders_regions.order_id and FIND_IN_SET(orders_regions.region_id, '${rangeRegions}')`
+                 AND orders.id =orders_regions.order_id and FIND_IN_SET(orders_regions.region_id, '${rangeRegions}')
+                 AND orders.destination IN(${rangeDestinations}) `
+
     const orders = await functions.querySQL(sql)//формируем запросы на заказы по заданным регионам
+
     let inline_keyboard = [];
     for (var i = 0; i < orders.length; i++) {
         inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам

@@ -73,5 +73,10 @@ module.exports = {
             return false
         }
         return true
+    },
+    intersect(nums1,nums2){
+
     }
+
+
 }

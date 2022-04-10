@@ -3,6 +3,16 @@ const options = require("./options");
 const functions = require("./functions");
 const db = require("./init_db")();
 
+const city = {
+    1: "Александровский",
+    2: "Заводской",
+    3: "Комунарский",
+    4: "Днепровский",
+    5: "Вознесеновксий",
+    6: "Хортицкий",
+    7: "Шевченковский"
+}
+
 async function holdOrder(msg, chatId) {
     const orders = await functions.getSql('orders_regions, orders', 'orders.status=1 and orders_regions.status=1 AND orders.id=orders_regions.order_id', 'orders.title, orders.id');
     const inline_keyboard = [];
@@ -38,7 +48,7 @@ async function completeOrder(msg, chatId) {
 
     const user = await functions.getSql('users', 'id=' + user_id);
     order = await functions.getSql('orders', 'id=' + order);
-    if(await functions.isAdmin(user[0].id)){
+    if (await functions.isAdmin(user[0].id)) {
         const messages = await functions.getSql('messages', 'order_id=' + order[0].id + ' and user_id=' + user_id);
         if (messages.length > 0) {
             bot.deleteMessage(user[0].chat_id, messages[0].message_id);
@@ -48,14 +58,15 @@ async function completeOrder(msg, chatId) {
         db.query("DELETE FROM `execution_order` WHERE order_id=" + order[0].id);
         db.query("INSERT INTO `orders_end`(`id_user`, `order_id`) VALUES (" + user[0].id + "," + order[0].id + ")");
         bot.sendMessage(user[0].chat_id, "<b>" + order[0].title + "</b>\n\n" + order[0].description + "\n\nЗадание завершено ✅", options.mainMenu)
-    }else{
+    } else {
         db.query("UPDATE `execution_order` SET status=2  WHERE order_id=" + order[0].id);
         options.default.chat_id = chatId
         options.default.message_id = msg.message.message_id
-        bot.editMessageText("<b>Прикрепите фотографию с места прибытия</b>",  options.default);
+        bot.editMessageText("<b>Прикрепите фотографию с места прибытия</b>", options.default);
     }
 
 }
+
 async function executionOrder(msg, chatId) {
     let vehicleInfo;
     let order = parseInt(msg.data.split('_')[1]);
@@ -119,6 +130,7 @@ async function adminMenu(msg, chatId) {
 async function sendOrder(msg, chatId) {
     const id = parseInt(msg.data.split('_')[1]);
     const region = parseInt(msg.data.split('_')[2]);
+    const destination = parseInt(msg.data.split('_')[3])
     let text = "<b>Что вас интересует?</b>";
     const inline_keyboard = [];
     if (!id) {// значит админ еще не выбрал задание
@@ -132,10 +144,19 @@ async function sendOrder(msg, chatId) {
         for (let i = 0; i < regions.length; i++) {
             inline_keyboard.push([{
                 text: regions[i].title,
-                callback_data: "sendOrder_" + id + "_" + regions[i].id
+                callback_data: `sendOrder_${id}_${regions[i].id}`
             }]);
         }
-        text = "<b>Выберете район по которому будет отправка</b>";
+        text = "<b>🌆 Выберите район отправки </b>";
+    } else if (!destination) {
+        const regions = await functions.getSql("regions")
+        for (let i = 0 ; i<regions.length ;i++){
+            inline_keyboard.push([{
+                text  : regions[i].title,
+                callback_data: `saveDestination_${id}_${region}_${regions[i].id}`
+            }])
+        }
+    text="<b>🌆 Выберете район пунта назначения</b>"
     } else {//значит регион выбран , оформляем задание и записываем в базу
         const checkActiv = await functions.getSql('orders_regions', 'region_id=' + region + ' and order_id=' + id);
         if (checkActiv.length <= 0) {
@@ -205,7 +226,7 @@ async function sendOrders(order, region, i = 0) {// отвечает за рас
 async function deleteOrder(msg, chatId) {
     const id = parseInt(msg.data.split('_')[1]);
     db.query("DELETE FROM `orders` WHERE id=" + id);
-    editMessages(id,'delete');
+    editMessages(id, 'delete');
     const inline_keyboard = [];
     inline_keyboard.push([{text: "Задания на выполнении", callback_data: "acceptOrder_"}]);
     inline_keyboard.push([{text: "Ожидают исполнителей", callback_data: "holdOrder_"}]);
@@ -241,7 +262,7 @@ async function createOrder(msg, chatId) {
         } else {
             db.query("UPDATE `orders` SET `description`=null WHERE id=" + order[0].id);
             const inline_keyboard = [];
-            inline_keyboard.push([{text: order[0].title, callback_data: "_"}]);
+            // inline_keyboard.push([{text: order[0].title, callback_data: "_"}]);
             inline_keyboard.push([{
                 text: "🔄 Отменить",
                 callback_data: "createOrder_" + order[0].id
@@ -254,7 +275,8 @@ async function createOrder(msg, chatId) {
                 reply_markup: JSON.stringify({inline_keyboard})
             };
             bot.editMessageText(`<b>Название задания:  ${order[0].title} </b> 
-                                    \n<b>✍️Введите описание до 700 символов</b>`, result);}
+                                    \n<b>✍️Введите описание до 700 символов</b>`, result);
+        }
 
     } else if (user.admin) {
         const order = await functions.getSql('orders', '(title is null or description is null) and user_id=' + user.id);
@@ -278,7 +300,7 @@ async function createOrder(msg, chatId) {
                 db.query("UPDATE `orders` SET `message_id`='" + callback.message_id + "' WHERE id=" + newOrder[0].id);
             });
         } else if (!order[0].description) {
-            text = "<b>✍️Вы не закончили настройку задания</b>\n\n✍️Введите описание задания (до 700 символов)";
+            text = "<b>Вы не закончили настройку задания</b>\n✍️Введите описание задания (до 700 символов)";
             const inline_keyboard = [];
             const result = {
                 chat_id: chatId,
@@ -351,8 +373,11 @@ async function order(msg, chatId) {
     }
     const inline_keyboard = [];
 
-    inline_keyboard.push([{text:"🔙 Назад",callback_data: "backToList_"},{text: "Взять задание", callback_data: "getOrder_" + id}]);
-    if (user.admin){
+    inline_keyboard.push([{text: "🔙 Назад", callback_data: "backToList_"}, {
+        text: "Взять задание",
+        callback_data: "getOrder_" + id
+    }]);
+    if (user.admin) {
         inline_keyboard.push([{text: "Удалить ❌", callback_data: "deleteOrder_" + order[0].id}]);
     }
     const result = {
@@ -396,6 +421,82 @@ async function finedOrder(msg, chatId) {
     await functions.findOrder(chatId, flags, msg.message.message_id)
 }
 
+async function destinationOrder(msg , chatId){
+    const regions = await functions.getSql("regions")
+    const inline_keyboard = []
+    for (let i = 0 ; i<regions.length ;i++){
+        inline_keyboard.push([{
+            text  : regions[i].title,
+            callback_data: `saveDestinationOrder_${regions[i].id}`
+        }])
+    }
+    let result = {
+        chat_id: chatId,
+        message_id : msg.message.message_id,
+        parse_mode: "HTML",
+        reply_markup: JSON.stringify({inline_keyboard})
+    };
+    await bot.editMessageText("<b>1.Выберете район(-ы) прибытия </b><b>\n 2.🔍 Для поиска нажмите /search</b>", result)
+}
+
+async function saveDestinationOrder(msg, chatId){
+    const choosedRegion = parseInt(msg.data.split('_')[1]);//регион который выбрал пользователь
+    const result = await functions.getSql("finedOrder", "chat_id = " + chatId);
+    let destinationFlags = JSON.parse(result[0].destination_id)
+    if (!destinationFlags.find(item => item == choosedRegion)) destinationFlags.push(choosedRegion)
+    else return
+
+    const addRegion = `UPDATE finedOrder
+                       SET destination_id = '[${destinationFlags}]'
+                       WHERE chat_id = '${chatId}' `;
+    await db.query(addRegion)
+    await refreshList(chatId , destinationFlags , msg.message.message_id)
+
+    async function refreshList(chatId , destinationFlags ,messageId ){
+        const regions = await functions.getSql('regions', 'status=1');
+        const inline_keyboard = [];
+        for (let i = 0; i < regions.length; i++) {
+            text = destinationFlags && destinationFlags.length && destinationFlags.find(item => item == i + 1) ? "✅ " + `${regions[i].title}` : "➖ " + `${regions[i].title}`
+            const district = {text, callback_data: "saveDestinationOrder_" + regions[i].id}
+            inline_keyboard.push([district]);
+        }
+            let result = {
+                chat_id: chatId,
+                message_id: messageId,
+                reply_markup: JSON.stringify({inline_keyboard}),
+                parse_mode: "HTML"
+            };
+            await bot.editMessageText("<b>1.Выберете район(-ы) поиска </b><b>\n 2.🔍 Для поиска нажмите /search</b>", result)
+    }
+}
+
+async function saveDestination(msg, chatId) {
+    const orderId = msg.data.split("_")[1]
+    const region = msg.data.split("_")[2]
+    const destination = msg.data.split("_")[3]
+    let condition = `SELECT * FROM orders 
+                       WHERE id = '${orderId}'`
+    let order = await functions.querySQL(condition)
+    order = order[0]
+    condition = `UPDATE orders 
+                 SET destination = '${destination}'
+                 WHERE id  = '${orderId}'`
+    db.query(condition)
+
+    const inline_keyboard = []
+    inline_keyboard.push([{text: "Удалить ❌", callback_data: "deleteOrder_" + orderId}, {
+        text: "✅ Создать", callback_data: "sendOrder_" + orderId + "_"+region+"_"+destination
+    }]);
+    const result = {
+        chat_id: chatId,
+        message_id: order.message_id,
+        parse_mode: "HTML",
+        reply_markup: JSON.stringify({inline_keyboard})
+    };
+    return bot.editMessageText("<b>Название задания: </b>" + order.title + "\n<b>Описание:</b>" + order.description +"\n<b>Район отправки:</b>"+ city[region] + "\n<b>Район прибытия: </b>" + city[destination], result)
+
+}
+
 async function changeAuto(msg, chatId) {
     try {
         const user = await functions.getUser(msg, 1)
@@ -416,7 +517,7 @@ async function changeAuto(msg, chatId) {
 }
 
 async function backToMenu(msg, chatId) {
-    bot.sendMessage(chatId , "<b>Главное меню</b>" , options.mainMenu)
+    bot.sendMessage(chatId, "<b>Главное меню</b>", options.mainMenu)
 }
 
 async function enterData(msg) {
@@ -429,7 +530,7 @@ async function enterData(msg) {
     await functions.verifyUser(user)
 }
 
-async function editMessages(order,type) {
+async function editMessages(order, type) {
     let messages = await functions.getSql('messages', 'order_id=' + order);
     if (messages.length > 0) {
         let result = {
@@ -438,7 +539,7 @@ async function editMessages(order,type) {
 
             parse_mode: "HTML"
         };
-        bot.editMessageText(type ==='delete' ? "✅ Задание было удалено" :"Задание забрали в работу", result);
+        bot.editMessageText(type === 'delete' ? "✅ Задание было удалено" : "Задание забрали в работу", result);
         db.query("DELETE FROM `messages` WHERE id=" + messages[0].id);
         setTimeout(function () {
             editMessages(order);
@@ -446,11 +547,12 @@ async function editMessages(order,type) {
     }
 }
 
-async function backToList(msg,chatId){
+async function backToList(msg, chatId) {
     bot.deleteMessage(chatId, msg.message.message_id)
 }
 
-module.exports={
+
+module.exports = {
     holdOrder,
     completeOrder,
     executionOrder,
@@ -468,6 +570,9 @@ module.exports={
     backToMenu,
     enterData,
     editMessages,
-    backToList
+    backToList,
+    saveDestination,
+    destinationOrder,
+    saveDestinationOrder
 }
 

@@ -38,23 +38,23 @@ async function findOrder(chatId, flags = [], messageId) {
         const district = {text, callback_data: "finedOrder_" + regions[i].id}
         inline_keyboard.push([district]);
     }//делаем пуш для кнопок всех регионов
-
+    inline_keyboard.push([{text : "Далее➡",callback_data: "destinationOrder_" }])
     let result = {
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
 
-    if (flags.length) {// после нажатия на регион
+    if (flags.length) {// последующие круги
         result = {
             chat_id: chatId,
             message_id: messageId,
             reply_markup: JSON.stringify({inline_keyboard}),
             parse_mode: "HTML"
         };
-        await bot.editMessageText("<b>1.Выберете район(-ы) </b><b>\n 2.🔍 Для поиска нажмите /search</b>", result)
+        await bot.editMessageText("<b>Выберете район(-ы) поиска </b>", result)
 
-    } else {// после нажатия на клавишу Поиск заказа
-        bot.sendMessage(chatId, "<b>1.Выберете район(-ы) </b><b>\n2.🔍 Для поиска нажмите /search</b>", result)//отправляем районы поиска пользователю
+    } else {//первый круг
+        bot.sendMessage(chatId, "<b>Выберете район(-ы) поиска </b>", result)//отправляем районы поиска пользователю
             .then(async function (callback) {//сохраняем новый  finedOrder
                 console.log(callback)
                 if (!flags.length) {
@@ -185,7 +185,7 @@ function imageMessage(user) {
 
 async function saveOrderTitle(msg, chatId, order) {
     let inline_keyboard = [];
-    inline_keyboard.push([{text: msg.text, callback_data: "_"}]);
+    // inline_keyboard.push([{text: msg.text, callback_data: "_"}]);
     inline_keyboard.push([{
         text: "🔄 Отменить",
         callback_data: "createOrder_" + order.id
@@ -197,7 +197,7 @@ async function saveOrderTitle(msg, chatId, order) {
         reply_markup: JSON.stringify({inline_keyboard})
     };
     bot.editMessageText(`<b>Название задания:  ${msg.text} </b> 
-                                \n\n<b>Введите описание до 700 символов</b>`, result);
+                                \n<b>Введите описание до 700 символов</b>`, result);
     db.query("UPDATE `orders` SET `title`=" + mysql.escape(msg.text) + " WHERE id=" + order.id);
 }
 
@@ -284,19 +284,19 @@ function getEntities(text, entities) {
 
 async function saveOrderDesc(msg, chatId, order) {
     let inline_keyboard = [];
-    inline_keyboard.push([{text: order.title, callback_data: "_"}]);
+    inline_keyboard.push([{ text: `➡ Выбрать район отправки`, callback_data: "sendOrder_" + order.id}])
     inline_keyboard.push([{
         text: "🔄 Отменить",
         callback_data: "createOrder_" + order.id
     }, {text: "Удалить ❌", callback_data: "deleteOrder_" + order.id}]);
-    inline_keyboard.push([{text: "✅ Создать", callback_data: "sendOrder_" + order.id}]);
     let result = {
         chat_id: chatId,
         message_id: order.message_id,
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
-    bot.editMessageText("<b>Название:</b> \n" + order.title + " \n\n<b>Описание:</b> \n" + getEntities(msg.text, msg.entities), result);
+    bot.editMessageText("<b>Название:</b>" + order.title + "\n <b>Описание:</b>" + getEntities(msg.text, msg.entities)+
+        "\n<b>Выберите район пункта назначения </b>", result);
     db.query("UPDATE `orders` SET `description`=" + mysql.escape(getEntities(msg.text, msg.entities)) + " WHERE id=" + order.id);
 }
 

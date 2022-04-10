@@ -56,7 +56,7 @@ module.exports={
         parse_mode: "HTML",
         reply_markup: JSON.stringify({
             one_time_keyboard: true,
-           inline_keyboard: [
+            inline_keyboard: [
                 [{text: '🚗 Смена ТС ', callback_data: 'changeAuto_'},
                     {text: '🔙 Назад', callback_data: 'backToMenu_'}],
             ]
