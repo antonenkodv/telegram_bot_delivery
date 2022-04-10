@@ -28,14 +28,16 @@ module.exports = {
             let result = {
                 parse_mode: "HTML",
                 reply_markup: JSON.stringify({
+                    one_time_keyboard: true,
                     keyboard: [
                         [{
-                            text: "Поделится контактом",
+                            text: "Поделиться контактом",
                             request_contact: true
                         }]
                     ]
                 })
             };
+
             bot.sendMessage(chatId, "Не верный формат, отправьте номер телефона в вормате: <b>+380xxxxxxxxx</b>\nИли поделитесь контактом", result);
             return false
         }
@@ -55,7 +57,7 @@ module.exports = {
                 message_id: order.message_id,
                 parse_mode: "HTML"
             };
-            bot.editMessageText("Введите название задания <b>до 35 символов</b>\nИспользовано: <b>" + msg.text.length + "</b> символов ", result);
+            bot.editMessageText("✍️ Введите название задания <b>до 35 символов</b>\nИспользовано: <b>" + msg.text.length + "</b> символов ", result);
             return false
         }
         return true
@@ -67,7 +69,7 @@ module.exports = {
                 message_id: order.message_id,
                 parse_mode: "HTML"
             };
-            bot.editMessageText("Введите описание задания <b>до 700 символов</b>\nИспользовано: <b>" + msg.text.length + "</b> символов ", result);
+            bot.editMessageText("✍️Введите описание задания <b>до 700 символов</b>\nИспользовано: <b>" + msg.text.length + "</b> символов ", result);
             return false
         }
         return true

@@ -8,6 +8,7 @@ const promisify = require('util').promisify;
 const AWS = require("aws-sdk");
 const db = require("./init_db")();
 const s3 = new AWS.S3()
+
 const aws = {
     accessKeyId: process.env.ACCESS_KEY_ID,
     secretAccessKey: process.env.SECRET_ACCESS_KEY,
@@ -50,10 +51,10 @@ async function findOrder(chatId, flags = [], messageId) {
             reply_markup: JSON.stringify({inline_keyboard}),
             parse_mode: "HTML"
         };
-        await bot.editMessageText("<b>1.Выберете район(-ы) </b><b>\n 2.Для поиска введите /search</b>", result)
+        await bot.editMessageText("<b>1.Выберете район(-ы) </b><b>\n 2.🔍 Для поиска нажмите /search</b>", result)
 
     } else {// после нажатия на клавишу Поиск заказа
-        bot.sendMessage(chatId, "<b>1.Выберете район(-ы) </b><b>\n2.Для поиска введите /search</b>", result)//отправляем районы поиска пользователю
+        bot.sendMessage(chatId, "<b>1.Выберете район(-ы) </b><b>\n2.🔍 Для поиска нажмите /search</b>", result)//отправляем районы поиска пользователю
             .then(async function (callback) {//сохраняем новый  finedOrder
                 console.log(callback)
                 if (!flags.length) {
@@ -102,8 +103,8 @@ function getUser(msg, type = 0) {
             if (user.length <= 0) {
                 db.query("INSERT INTO `users`(`name`,`chat_id`,`username`) VALUES (" + mysql.escape(msg.from.first_name) + ",'" + chatId + "'," + mysql.escape(msg.from.username) + ")");
                 console.log("Registration end");
-                let user = await getSql("users", "chat_id = " + chatId);
-                user = user[0];
+                user = await getSql("users", "chat_id = " + chatId);
+                user = user[0]
                 if (url) {
                     const ref = await getSql('users', 'chat_id=' + mysql.escape(url));
                     if (ref.length <= 0) {
@@ -120,7 +121,6 @@ function getUser(msg, type = 0) {
                     let admin = await getSql("admins", "link = " + mysql.escape(url) + " and user_id is NULL");
                     if (admin.length > 0) {
                         db.query("UPDATE `admins` SET `user_id`= " + user.id + ", `status`= 1 WHERE id=" + admin[0].id);
-                        admin = await getSql("admins", "user_id = " + user.id);
                         user.admin = true;
                     } else
                         user.admin = false;
@@ -128,7 +128,6 @@ function getUser(msg, type = 0) {
                     user.admin = true;
                 }
             } else {
-
                 const admin = await getSql("admins", "user_id = " + user.id)
                 if (admin.length > 0)
                     user.admin = true;
@@ -170,7 +169,7 @@ function digitsMessage(user) {
     if (user.digits) {
         db.query("UPDATE `users` SET `digits`=NULL WHERE id=" + user.id)
     }
-
+    options.default.remove_keyboard = true
     bot.sendMessage(user.chat_id, "<b>Напишите гос. номер вашего автомобиля</b>", options.default);
     return false
 }
@@ -197,7 +196,8 @@ async function saveOrderTitle(msg, chatId, order) {
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
-    bot.editMessageText("Название: \n<b>" + msg.text + "</b> \nПроверьте ниже⬇️ \nТак будет выглядеть  название в списке. \n\n<b>Введите описание до 700 символов</b>", result);
+    bot.editMessageText(`<b>Название задания:  ${msg.text} </b> 
+                                \n\n<b>Введите описание до 700 символов</b>`, result);
     db.query("UPDATE `orders` SET `title`=" + mysql.escape(msg.text) + " WHERE id=" + order.id);
 }
 
@@ -224,7 +224,7 @@ async function uploadLocalImage(image) {
 
 async function uploadToS3(fileName) {
     const readFile = promisify(fs.readFile);
-    const data = await readFile(path.join('public', 'images', `${fileName}`));//скачиваем файл
+    const data = await readFile(path.join('public', 'images', `${fileName}`));
 
     return s3.upload({
         Bucket: 'svoi.images',
@@ -245,7 +245,7 @@ function getEntities(text, entities) {
     if (entities == undefined)
         return text;
     text = text.split('');
-    for (var i = 0; i < entities.length; i++) {
+    for (let i = 0; i < entities.length; i++) {
         switch (entities[i].type) {
             case "bold":
                 text[entities[i].offset] = '<b>' + text[entities[i].offset];
@@ -275,8 +275,8 @@ function getEntities(text, entities) {
         }
     }
 
-    var newText = "";
-    for (var i = 0; i < text.length; i++) {
+    let newText = "";
+    for (let i = 0; i < text.length; i++) {
         newText += text[i];
     }
     return newText;
@@ -289,7 +289,7 @@ async function saveOrderDesc(msg, chatId, order) {
         text: "🔄 Отменить",
         callback_data: "createOrder_" + order.id
     }, {text: "Удалить ❌", callback_data: "deleteOrder_" + order.id}]);
-    inline_keyboard.push([{text: "✅ Отправить", callback_data: "sendOrder_" + order.id}]);
+    inline_keyboard.push([{text: "✅ Создать", callback_data: "sendOrder_" + order.id}]);
     let result = {
         chat_id: chatId,
         message_id: order.message_id,
@@ -300,6 +300,18 @@ async function saveOrderDesc(msg, chatId, order) {
     db.query("UPDATE `orders` SET `description`=" + mysql.escape(getEntities(msg.text, msg.entities)) + " WHERE id=" + order.id);
 }
 
+async function isAdmin(userId){
+    try{
+        let condition = `SELECT * FROM admins 
+                        WHERE user_id = '${userId}'`
+        const admin =await querySQL(condition)
+        return admin.length ? true : false
+    }catch(err){
+        return false
+    }
+
+
+}
 function querySQL(condition) {
     return new Promise((resolve, reject) => {
         db.query(condition, (err, result) => {
@@ -312,13 +324,14 @@ function querySQL(condition) {
 module.exports = {
     getSql,
     findOrder,
-    forSend ,
+    forSend,
     getUser,
-    verifyUser ,
+    verifyUser,
     saveOrderTitle,
     uploadLocalImage,
-    uploadToS3 ,
+    uploadToS3,
     getEntities,
-    saveOrderDesc ,
+    saveOrderDesc,
     querySQL,
+    isAdmin
 }

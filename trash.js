@@ -29,7 +29,6 @@ async function createOffer(msg, user) {
         bot.sendMessage(chatId, "<b>" + user.org.title + "</b>\n\n<b>" + user.org.body + "</b>\n\n<b>" + msg.text + "</b>\n\nЩо ви приймаєте:", result);
     } else if (user.admin.status == 2) {
         var item = await getSql('items', "title is NULL and user_id=" + user.id);
-        bot.deleteMessage(chatId, msg.message_id);
         db.query("UPDATE `items` SET `title`=" + mysql.escape(msg.text) + ", status=1 WHERE id=" + item[0].id);
         db.query("UPDATE `admins` SET status=1 WHERE user_id=" + user.id);
         db.query("INSERT INTO `organization_items`(`organization_id`, `item_id`, `status`) VALUES ('" + user.org.id + "','" + item[0].id + "','1')");

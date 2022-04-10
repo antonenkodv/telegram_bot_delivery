@@ -24,31 +24,38 @@ async function holdOrder(msg, chatId) {
 async function completeOrder(msg, chatId) {
     let order = parseInt(msg.data.split('_')[1]);
     const user_id = parseInt(msg.data.split('_')[2]);
-    const inline_keyboard = [];
-    inline_keyboard.push([{text: '🔙 Меню', callback_data: "adminMenu_"}]);
-    const result = {
-        chat_id: chatId,
-        message_id: msg.message.message_id,
 
-        parse_mode: "HTML",
-        reply_markup: JSON.stringify({inline_keyboard})
-    };
-    bot.editMessageText(functions.getEntities(msg.message.text, msg.message.entities) + "\n\nЗадание завершено ✅", result);
+    // const inline_keyboard = [];
+    // inline_keyboard.push([{text: '🔙 Меню', callback_data: "adminMenu_"}]);
+    // const result = {
+    //     chat_id: chatId,
+    //     message_id: msg.message.message_id,
+    //
+    //     parse_mode: "HTML",
+    //     reply_markup: JSON.stringify({inline_keyboard})
+    // };
+    // bot.editMessageText(functions.getEntities(msg.message.text, msg.message.entities) + "\n\nЗадание завершено ✅", result);
 
     const user = await functions.getSql('users', 'id=' + user_id);
     order = await functions.getSql('orders', 'id=' + order);
-    const messages = await functions.getSql('messages', 'order_id=' + order[0].id + ' and user_id=' + user_id);
-    if (messages.length > 0) {
-        bot.deconsteMessage(user[0].chat_id, messages[0].message_id);
-        db.query("DELETE FROM `messages` WHERE id=" + messages[0].id);
+    if(await functions.isAdmin(user[0].id)){
+        const messages = await functions.getSql('messages', 'order_id=' + order[0].id + ' and user_id=' + user_id);
+        if (messages.length > 0) {
+            bot.deleteMessage(user[0].chat_id, messages[0].message_id);
+            db.query("DELETE FROM `messages` WHERE id=" + messages[0].id);
+        }
+        db.query("UPDATE `orders` SET status=3 WHERE id=" + order[0].id);
+        db.query("DELETE FROM `execution_order` WHERE order_id=" + order[0].id);
+        db.query("INSERT INTO `orders_end`(`id_user`, `order_id`) VALUES (" + user[0].id + "," + order[0].id + ")");
+        bot.sendMessage(user[0].chat_id, "<b>" + order[0].title + "</b>\n\n" + order[0].description + "\n\nЗадание завершено ✅", options.mainMenu)
+    }else{
+        db.query("UPDATE `execution_order` SET status=2  WHERE order_id=" + order[0].id);
+        options.default.chat_id = chatId
+        options.default.message_id = msg.message.message_id
+        bot.editMessageText("<b>Прикрепите фотографию с места прибытия</b>",  options.default);
     }
-    db.query("UPDATE `orders` SET status=3 WHERE id=" + order[0].id);
-    db.query("DELETE FROM `execution_order` WHERE order_id=" + order[0].id);
-    db.query("INSERT INTO `orders_end`(`id_user`, `order_id`) VALUES (" + user[0].id + "," + order[0].id + ")");
 
-    bot.sendMessage(user[0].chat_id, "<b>" + order[0].title + "</b>\n\n" + order[0].description + "\n\nЗадание завершено ✅", options.mainMenu)
 }
-
 async function executionOrder(msg, chatId) {
     let vehicleInfo;
     let order = parseInt(msg.data.split('_')[1]);
@@ -67,15 +74,15 @@ async function executionOrder(msg, chatId) {
     const vehicle = await functions.getSql("vehicles", "digits='" + user[0].digits + "'");
     order = await functions.getSql("orders", "id=" + order);
     if (vehicle.length > 0) {
-        vehicleInfo = "\n\n<i>Информация о машине:</i> \nМодель: <b>" + vehicle[0].vendor + " " + vehicle[0].model + " " + vehicle[0].model_year + "</b>\nТип: <b>" + vehicle[0].kind + "</b>\nЦвет: <b>" + vehicle[0].color + "</b>";
+        vehicleInfo = "\n\n<b>Информация о машине:</b> \nМодель: <b>" + vehicle[0].vendor + " " + vehicle[0].model + " " + vehicle[0].model_year + "</b>\nТип: <b>" + vehicle[0].kind + "</b>\nЦвет: <b>" + vehicle[0].color + "</b>";
     } else {
-        vehicleInfo = "\n\n<i>Информация о машине не найдена</i>";
+        vehicleInfo = "\n\n<b>Информация о машине не найдена</b>";
     }
-    bot.editMessageText("<i>Задание:</i>\n<b>" + order[0].title + "</b>\n\n" + order[0].description + "\n\n<i>Исполнитель:</i>\nИмя: <b>" + user[0].name + "</b>\nTelegram: @" + user[0].username + "\nНомер телефона: <b>" + user[0].phone + "</b>\nНомер машины: <b>" + user[0].digits + "</b>" + vehicleInfo, result);
+    bot.editMessageText("<b>Задание:</b>" + order[0].title + "\n<b>Описание:</b>" + order[0].description + "\n<b>Исполнитель:</b> \n<b>Имя</b>" + user[0].name + "\n<b>Telegram: @</b>" + user[0].username + "\n<b>Номер телефона:</b>" + user[0].phone + "\n</b>Номер машины: <b>" + user[0].digits + "</b>" + vehicleInfo, result);
 }
 
 async function acceptOrder(msg, chatId) {
-    const orders = await functions.getSql('execution_order,orders', 'execution_order.status=1 and orders.status=2 and orders.id = execution_order.order_id', 'orders.title, orders.id, execution_order.user_id');
+    const orders = await functions.getSql('execution_order,orders', 'execution_order.status=1  or execution_order.status=2  and orders.status=2 and orders.id = execution_order.order_id', 'orders.title, orders.id, execution_order.user_id');
     const inline_keyboard = [];
     for (let i = 0; i < orders.length; i++) {
         inline_keyboard.push([{
@@ -98,7 +105,6 @@ async function adminMenu(msg, chatId) {
     const inline_keyboard = [];
     inline_keyboard.push([{text: "Задания на выполнении", callback_data: "acceptOrder_"}]);
     inline_keyboard.push([{text: "Ожидают исполнителей", callback_data: "holdOrder_"}]);
-    inline_keyboard.push([{text: "Отправить задание", callback_data: "sendOrder_"}]);
     inline_keyboard.push([{text: "Создать задание", callback_data: "createOrder_"}]);
     const result = {
         chat_id: chatId,
@@ -129,7 +135,7 @@ async function sendOrder(msg, chatId) {
                 callback_data: "sendOrder_" + id + "_" + regions[i].id
             }]);
         }
-        text = "<b>Выберете район по каторому будет отправка</b>";
+        text = "<b>Выберете район по которому будет отправка</b>";
     } else {//значит регион выбран , оформляем задание и записываем в базу
         const checkActiv = await functions.getSql('orders_regions', 'region_id=' + region + ' and order_id=' + id);
         if (checkActiv.length <= 0) {
@@ -137,7 +143,7 @@ async function sendOrder(msg, chatId) {
             db.query("UPDATE `orders` SET `status`=1 WHERE id=" + id);//переводим в статус режима ожидания пока задание кто-то возьмет
 
             const regions = await functions.getSql('finedOrder', 'status=1 and region_id=' + region);
-            text = "Пользователей ожидающих задания в этом районе: <b>" + regions.length + "</b>\nИдет отправка, ожидайте ...";
+            text = "Пользователей ожидающих задания в этом районе: <b>" + regions.length + "</b>";
             const result = {
                 chat_id: chatId,
                 message_id: msg.message.message_id,
@@ -146,7 +152,7 @@ async function sendOrder(msg, chatId) {
                 reply_markup: JSON.stringify({inline_keyboard})
             };
             bot.editMessageText(text, result);
-            const sends = await this.sendOrders(id, region);
+            const sends = await sendOrders(id, region);
             console.log(sends)
             text = "Пользователей ожидающих задания в этом районе: <b>" + regions.length + "</b>\nОтправленно сообщений: <b>" + sends + "</b>";
         } else {
@@ -183,7 +189,7 @@ async function sendOrders(order, region, i = 0) {// отвечает за рас
             bot.sendMessage(fineders[i].chat_id, "<b>" + order.title + "</b>\n" + order.description, result).then(async function (callback) {
                 db.query("INSERT INTO `messages`(`user_id`, `message_id`, `chat_id`, `order_id`) VALUES (" + fineders[i].user_id + "," + callback.message_id + "," + fineders[i].chat_id + "," + order.id + ")");
                 setTimeout(async function () {
-                    const send_i = await this.sendOrders(order.id, region, i + 1);
+                    const send_i = await sendOrders(order.id, region, i + 1);
                     resolve(send_i);
                 }, 300);
             }, function (err) {
@@ -199,11 +205,10 @@ async function sendOrders(order, region, i = 0) {// отвечает за рас
 async function deleteOrder(msg, chatId) {
     const id = parseInt(msg.data.split('_')[1]);
     db.query("DELETE FROM `orders` WHERE id=" + id);
-    this.editMessages(id);
+    editMessages(id,'delete');
     const inline_keyboard = [];
     inline_keyboard.push([{text: "Задания на выполнении", callback_data: "acceptOrder_"}]);
     inline_keyboard.push([{text: "Ожидают исполнителей", callback_data: "holdOrder_"}]);
-    inline_keyboard.push([{text: "Отправиь задание", callback_data: "sendOrder_"}]);
     inline_keyboard.push([{text: "Создать задание", callback_data: "createOrder_"}]);
     const result = {
         chat_id: chatId,
@@ -223,7 +228,7 @@ async function createOrder(msg, chatId) {
         const order = await functions.getSql('orders', 'id=' + id);
         if (!order[0].description) {
             db.query("UPDATE `orders` SET `title`=null WHERE id=" + order[0].id);
-            text = "Введите название задания (до 35 символов)";
+            text = "✍️Введите название задания (до 35 символов)";
             const inline_keyboard = [];
             const result = {
                 chat_id: chatId,
@@ -248,16 +253,16 @@ async function createOrder(msg, chatId) {
                 parse_mode: "HTML",
                 reply_markup: JSON.stringify({inline_keyboard})
             };
-            bot.editMessageText("Название: \n<b>" + order[0].title + "</b> \nПроверьте ниже⬇️ \nТак будет выглядеть  название в списке. \n\n<b>Введите описание до 700 символов</b>", result);
-        }
+            bot.editMessageText(`<b>Название задания:  ${order[0].title} </b> 
+                                    \n<b>✍️Введите описание до 700 символов</b>`, result);}
 
     } else if (user.admin) {
         const order = await functions.getSql('orders', '(title is null or description is null) and user_id=' + user.id);
         if (order.length <= 0 || !order[0].title) {
             if (order.length > 0 && !order[0].title)
-                text = "<b>Вы не закончили настройку задания</b>\n\nВведите название задания (до 35 символов)";
+                text = "<b>Вы не закончили настройку задания</b>\n\n✍️ Введите название задания (до 35 символов)";
             else {
-                text = "Введите название задания (до 35 символов)";
+                text = "✍️Введите название задания (до 35 символов)";
                 db.query("INSERT INTO `orders`(`user_id`) VALUES (" + user.id + ")");
             }
             const inline_keyboard = [];
@@ -273,7 +278,7 @@ async function createOrder(msg, chatId) {
                 db.query("UPDATE `orders` SET `message_id`='" + callback.message_id + "' WHERE id=" + newOrder[0].id);
             });
         } else if (!order[0].description) {
-            text = "<b>Вы не закончили настройку задания</b>\n\nВведите описание задания (до 700 символов)";
+            text = "<b>✍️Вы не закончили настройку задания</b>\n\n✍️Введите описание задания (до 700 символов)";
             const inline_keyboard = [];
             const result = {
                 chat_id: chatId,
@@ -295,21 +300,25 @@ async function getOrder(msg, chatId) {
     db.query("UPDATE `orders` SET status=2 WHERE id=" + id);
     db.query("DELETE FROM `messages` WHERE chat_id=" + chatId + " and order_id=" + id);
     db.query("INSERT INTO `execution_order`(`order_id`, `user_id`, `message_id`, `chat_id`) VALUES ('" + id + "','" + user[0].id + "','" + msg.message.message_id + "','" + chatId + "')");
-    this.editMessages(id);
+    editMessages(id);
     const messages = await functions.getSql('finedOrder', 'chat_id=' + chatId);
     if (messages.length > 0) {
         bot.deleteMessage(chatId, messages[0].message_id);
         db.query("DELETE FROM `finedOrder` WHERE chat_id=" + chatId);
     }
-    bot.deleteMessage(chatId, msg.message.message_id);
     if (vehicle.length > 0) {
-        vehicleInfo = "\n\n<i>Информация о машине:</i> \nМодель: <b>" + vehicle[0].vendor + " " + vehicle[0].model + " " + vehicle[0].model_year + "</b>\nТип: <b>" + vehicle[0].kind + "</b>\nЦвет: <b>" + vehicle[0].color + "</b>";
+        vehicleInfo = "\n\n<b>Информация о машине:</b> \nМодель: <b>" + vehicle[0].vendor + " " + vehicle[0].model + " " + vehicle[0].model_year + "</b>\nТип: <b>" + vehicle[0].kind + "</b>\nЦвет: <b>" + vehicle[0].color + "</b>";
     } else {
-        vehicleInfo = "\n\n<i>Информация о машине не найдена</i>";
+        vehicleInfo = "\n\n<b>Информация о машине не найдена</b>";
     }
-    bot.sendMessage(chatId, functions.getEntities(msg.message.text, msg.message.entities) + "\n\n✅ <b>Вы получили задание</b>", options.taskView);
-    const admins = await functions.getSql('admins,users', 'admins.user_id = users.id', 'users.chat_id');
-    var result = {
+    bot.sendMessage(chatId, functions.getEntities(msg.message.text, msg.message.entities) + "\n\n ✅<b>Вы получили задание</b>\n\n<b> 📞 В ближайшее время с Вами свяжется наш сотрудник </b>", options.taskView);
+
+    let condition = `SELECT * FROM users, orders
+                WHERE orders.id = '${id}' and orders.user_id=users.id`
+
+    let logistChatId = await functions.querySQL(condition)
+
+    let result = {
 
         parse_mode: "HTML",
         reply_markup: JSON.stringify({
@@ -321,9 +330,8 @@ async function getOrder(msg, chatId) {
             ]
         })
     };
-    for (let i = 0; i < admins.length; i++) {
-        await functions.forSend(admins[i].chat_id, "<i>Задание:</i>\n" + functions.getEntities(msg.message.text, msg.message.entities) + "\n\n<i>Исполнитель:</i>\nИмя: " + user[0].name + "\nTelegram: @" + user[0].username + "\nНомер телефона: " + user[0].phone + "\nНомер машины: " + user[0].digits + vehicleInfo, result)
-    }
+    await functions.forSend(logistChatId[0].chat_id, "<b>Задание:</b>\n" + functions.getEntities(msg.message.text, msg.message.entities) + "\n<b>Исполнитель:</b>" + user[0].name + "\n<b>Telegram: @</b>" + user[0].username + "\n<b>Номер телефона:</b> " + user[0].phone + "\n<b>Номер машины:</b> " + user[0].digits + vehicleInfo, result)
+
 }
 
 async function order(msg, chatId) {
@@ -335,17 +343,18 @@ async function order(msg, chatId) {
         bot.deleteMessage(chatId, messages[0].message_id);
         db.query("DELETE FROM `messages` WHERE chat_id=" + chatId);
     }
-
     if (order.length <= 0) {
         bot.sendMessage(chatId, "К сожалению задание больше не доступно", result);
         if (order.length > 0)
-            this.editMessages(order[0].id);
+            editMessages(order[0].id);
         return;
     }
     const inline_keyboard = [];
-    if (user.admin)
+
+    inline_keyboard.push([{text:"🔙 Назад",callback_data: "backToList_"},{text: "Взять задание", callback_data: "getOrder_" + id}]);
+    if (user.admin){
         inline_keyboard.push([{text: "Удалить ❌", callback_data: "deleteOrder_" + order[0].id}]);
-    inline_keyboard.push([{text: "Взять задание", callback_data: "getOrder_" + id}]);
+    }
     const result = {
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
@@ -389,8 +398,6 @@ async function finedOrder(msg, chatId) {
 
 async function changeAuto(msg, chatId) {
     try {
-        bot.deleteMessage(chatId, msg.message.message_id)
-        bot.deleteMessage(chatId, msg.message.message_id - 1)
         const user = await functions.getUser(msg, 1)
         const {digits} = user
         let sql = `DELETE FROM vehicles
@@ -409,9 +416,7 @@ async function changeAuto(msg, chatId) {
 }
 
 async function backToMenu(msg, chatId) {
-    bot.deleteMessage(chatId, msg.message.message_id)
-    bot.deleteMessage(chatId, msg.message.message_id - 1)
-    bot.sendMessage(chatId, "<b>Главное меню</b>", options.mainMenu);
+    bot.sendMessage(chatId , "<b>Главное меню</b>" , options.mainMenu)
 }
 
 async function enterData(msg) {
@@ -424,21 +429,25 @@ async function enterData(msg) {
     await functions.verifyUser(user)
 }
 
-async function editMessages(order) {
-    var messages = await functions.getSql('messages', 'order_id=' + order);
+async function editMessages(order,type) {
+    let messages = await functions.getSql('messages', 'order_id=' + order);
     if (messages.length > 0) {
-        var result = {
+        let result = {
             chat_id: messages[0].chat_id,
             message_id: messages[0].message_id,
 
             parse_mode: "HTML"
         };
-        bot.editMessageText("Задание забрали в работу", result);
+        bot.editMessageText(type ==='delete' ? "✅ Задание было удалено" :"Задание забрали в работу", result);
         db.query("DELETE FROM `messages` WHERE id=" + messages[0].id);
         setTimeout(function () {
-            this.editMessages(order);
+            editMessages(order);
         }, 300);
     }
+}
+
+async function backToList(msg,chatId){
+    bot.deleteMessage(chatId, msg.message.message_id)
 }
 
 module.exports={
@@ -459,5 +468,6 @@ module.exports={
     backToMenu,
     enterData,
     editMessages,
+    backToList
 }
 

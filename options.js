@@ -1,6 +1,6 @@
 module.exports={
     default : {
-        parse_mode: "HTML"
+        parse_mode: "HTML",
     },
     shareContact : {
         parse_mode: "HTML",
@@ -8,7 +8,7 @@ module.exports={
             one_time_keyboard: true,
             keyboard: [
                 [{
-                    text: "Поделится контактом",
+                    text: "Поделиться контактом",
                     request_contact: true
                 }]
             ]
@@ -35,6 +35,8 @@ module.exports={
                 }],
                 [{
                     text: "Настройки"
+                },{
+                    text : "Мои задания"
                 }]
             ]
         })
