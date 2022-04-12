@@ -15,17 +15,15 @@ process.env["NTBA_FIX_350"] = 1;
 
 bot.setMyCommands([
     {command: '/start', description: 'Начало'},
-    {command: '/admin', description: 'действия админа'},
+    {command: '/admin', description: 'Действия админа'},
 ])
 
 bot.on('message', async function (msg) {
     const chatId = msg.from.id;
     const text = msg.text
     if (text === '/start') return start(msg)
-    if (text === '/new') return createAdmin(msg, chatId)
     if (text === '/admin') return adminPanel(msg, chatId)
-    if (text === '/search') return searchOrder(msg, chatId)
-
+    if (text.split("_")[0] === '/new') return createAdmin(msg, chatId)
     let user = await functions.getUser(msg);
 
     if (!user.admin && !user.phone) {//запись контактов шаг 2
@@ -222,15 +220,39 @@ async function start(msg) {
 }
 
 async function createAdmin(msg, chatId) {
-    if (chatId == '287363909') {
-        db.query("INSERT INTO `admins`(`link`) VALUES ('" + sha1(Math.random()) + "')");
-        const newOrg = await functions.getSql("admins", "user_id is NULL");
-        let txt = "";
-        for (let i = 0; i < newOrg.length; i++) {
-            txt += (i + 1) + ". https://t.me/SvoiLogisticsBot?start=" + newOrg[i].link + "\n";
+    try {
+    const command = msg.text.split("_")[0]
+    let digits = msg.text.split("_")[1]
+    const accessPermissions = ['464824652', '131861501','587094194']
+    const sha = sha1(String(digits + "_" + Math.random()*100))
+
+        if (!digits) return bot.sendMessage(chatId, "Вы не указали номер")
+        digits = helpers.toENG(digits)
+        let sql = `SELECT * FROM users
+               WHERE digits = '${digits}'`
+        let user = await functions.querySQL(sql)
+        if (!user.length) {
+            bot.sendMessage(chatId, "Пользователь не найден")
         }
-        bot.sendMessage(chatId, txt);
+        user = user[0]
+        sql = `SELECT * FROM admins
+               WHERE user_id='${user.id}'`
+        const res = await functions.querySQL(sql)
+        if(res.length){
+          return   bot.sendMessage(chatId,'Такой пользователь уже существует')
+        }
+        if (accessPermissions.find(item => chatId == item)) {
+            sql = `INSERT INTO admins (link , user_id ,status)  VALUES('${sha}' ,'${user.id}', '1')`
+            db.query(sql);
+            return bot.sendMessage(chatId, "✅ <b>Успешно создан</b>",options.default);
+        }else{
+            return bot.sendMessage(chatId , "<b>У вас недостаточно прав</b>",options.default)
+        }
+    } catch (err) {
+        console.log(err)
+        bot.sendMessage(chatId, "❌ Произошла ошибока")
     }
+
 }
 
 async function adminPanel(msg, chatId) {
@@ -247,48 +269,6 @@ async function adminPanel(msg, chatId) {
         };
         bot.sendMessage(chatId, "<b>Что вас интересует?</b>", result)
     }
-}
-
-async function searchOrder(msg, chatId) {
-    const user = await functions.getUser(msg);
-    const verify = await functions.verifyUser(user);
-    if (!verify) return
-
-    let finedOrder = await functions.getSql("finedOrder", "chat_id = " + chatId)//ищет пользователся в поиске
-    if (!finedOrder.length) {
-        bot.sendMessage(chatId, "<b>Пожалуйста,выберите регион</b>", options.searchOrder)
-        return
-    }
-    let rangeRegions = JSON.parse(finedOrder[0].region_id)//выбранные регионы
-    let rangeDestinations = JSON.parse(finedOrder[0].destination_id)//множество значений
-
-    let sql = `SELECT * FROM orders_regions , orders
-                 WHERE orders_regions.status=1 and orders.status=1
-                 AND orders.id =orders_regions.order_id and FIND_IN_SET(orders_regions.region_id, '${rangeRegions}')
-                 AND orders.destination IN(${rangeDestinations}) `
-
-    const orders = await functions.querySQL(sql)//формируем запросы на заказы по заданным регионам
-
-    let inline_keyboard = [];
-    for (var i = 0; i < orders.length; i++) {
-        inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам
-    }
-    inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
-
-    let setStatusInProcess = `UPDATE finedOrder
-                              SET status = '1'
-                              WHERE chat_id = '${chatId}' `;
-    await db.query(setStatusInProcess)//меняем статус пользователя  на активный
-
-    let text = "<b>Поиск заданий</b>"
-    if (orders.length > 0)
-        text += "\n\nВыберете из списка ниже:";
-    let result = {
-        parse_mode: "HTML",
-        reply_markup: JSON.stringify({inline_keyboard})
-    };
-
-    bot.sendMessage(chatId, text, result)
 }
 
 async function savePhone(msg, user, chatId) {

@@ -51,10 +51,10 @@ async function findOrder(chatId, flags = [], messageId) {
             reply_markup: JSON.stringify({inline_keyboard}),
             parse_mode: "HTML"
         };
-        await bot.editMessageText("<b>Выберете район(-ы) поиска </b>", result)
+        await bot.editMessageText("<b>Выберете район(-ы) отправки </b>", result)
 
     } else {//первый круг
-        bot.sendMessage(chatId, "<b>Выберете район(-ы) поиска </b>", result)//отправляем районы поиска пользователю
+        bot.sendMessage(chatId, "<b>Выберете район(-ы) отправки </b>", result)//отправляем районы поиска пользователю
             .then(async function (callback) {//сохраняем новый  finedOrder
                 console.log(callback)
                 if (!flags.length) {
@@ -284,18 +284,26 @@ function getEntities(text, entities) {
 
 async function saveOrderDesc(msg, chatId, order) {
     let inline_keyboard = [];
-    inline_keyboard.push([{ text: `➡ Выбрать район отправки`, callback_data: "sendOrder_" + order.id}])
+    const regions = await getSql('regions', 'status=1');
+    for (let i = 0; i < regions.length; i++) {
+        inline_keyboard.push([{
+            text: regions[i].title,
+            callback_data: `sendOrder_${order.id}_${regions[i].id}`
+        }]);
+    }
     inline_keyboard.push([{
         text: "🔄 Отменить",
         callback_data: "createOrder_" + order.id
     }, {text: "Удалить ❌", callback_data: "deleteOrder_" + order.id}]);
+    text = "<b>🌆 Выберите район отправки </b>";
+
     let result = {
         chat_id: chatId,
         message_id: order.message_id,
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
-    bot.editMessageText("<b>Название:</b>" + order.title + "\n <b>Описание:</b>" + getEntities(msg.text, msg.entities)+
+    bot.editMessageText("<b>Название:</b>" + order.title + "\n<b>Описание:</b>" + getEntities(msg.text, msg.entities)+
         "\n<b>Выберите район пункта назначения </b>", result);
     db.query("UPDATE `orders` SET `description`=" + mysql.escape(getEntities(msg.text, msg.entities)) + " WHERE id=" + order.id);
 }

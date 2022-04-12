@@ -2,6 +2,7 @@ const {bot} = require("./bot");
 const options = require("./options");
 const functions = require("./functions");
 const db = require("./init_db")();
+const helpers = require('./helpers')
 
 const city = {
     1: "Александровский",
@@ -421,7 +422,7 @@ async function finedOrder(msg, chatId) {
     await functions.findOrder(chatId, flags, msg.message.message_id)
 }
 
-async function destinationOrder(msg , chatId){
+async function destinationOrder(msg , chatId){//при первом открытии списка прибытия
     const regions = await functions.getSql("regions")
     const inline_keyboard = []
     for (let i = 0 ; i<regions.length ;i++){
@@ -430,16 +431,17 @@ async function destinationOrder(msg , chatId){
             callback_data: `saveDestinationOrder_${regions[i].id}`
         }])
     }
+    inline_keyboard.push([{text: "🔍Поиск",callback_data: "searchOrder_"}])
     let result = {
         chat_id: chatId,
         message_id : msg.message.message_id,
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
-    await bot.editMessageText("<b>1.Выберете район(-ы) прибытия </b><b>\n 2.🔍 Для поиска нажмите /search</b>", result)
+    await bot.editMessageText("<b>Выберете район(-ы) прибытия </b>", result)
 }
 
-async function saveDestinationOrder(msg, chatId){
+async function saveDestinationOrder(msg, chatId){// при открытии списка больше 1
     const choosedRegion = parseInt(msg.data.split('_')[1]);//регион который выбрал пользователь
     const result = await functions.getSql("finedOrder", "chat_id = " + chatId);
     let destinationFlags = JSON.parse(result[0].destination_id)
@@ -460,17 +462,18 @@ async function saveDestinationOrder(msg, chatId){
             const district = {text, callback_data: "saveDestinationOrder_" + regions[i].id}
             inline_keyboard.push([district]);
         }
-            let result = {
+        inline_keyboard.push([{text: "🔍Поиск",callback_data: "searchOrder_"}])
+        let result = {
                 chat_id: chatId,
                 message_id: messageId,
                 reply_markup: JSON.stringify({inline_keyboard}),
                 parse_mode: "HTML"
             };
-            await bot.editMessageText("<b>1.Выберете район(-ы) поиска </b><b>\n 2.🔍 Для поиска нажмите /search</b>", result)
+            await bot.editMessageText("<b>Выберете район(-ы) прибытия </b>", result)
     }
 }
 
-async function saveDestination(msg, chatId) {
+async function saveDestination(msg, chatId) {//после сохранения
     const orderId = msg.data.split("_")[1]
     const region = msg.data.split("_")[2]
     const destination = msg.data.split("_")[3]
@@ -495,6 +498,54 @@ async function saveDestination(msg, chatId) {
     };
     return bot.editMessageText("<b>Название задания: </b>" + order.title + "\n<b>Описание:</b>" + order.description +"\n<b>Район отправки:</b>"+ city[region] + "\n<b>Район прибытия: </b>" + city[destination], result)
 
+}
+async function searchOrder(msg, chatId) {
+    const user = await functions.getUser(msg,1);
+    const verify = await functions.verifyUser(user);
+    if (!verify) return
+
+    let finedOrder = await functions.getSql("finedOrder", "chat_id = " + chatId)//ищет пользователся в поиске
+    if (!finedOrder.length) {
+        bot.sendMessage(chatId, "<b>Пожалуйста,выберите регион</b>", options.searchOrder)
+        return
+    }
+    let rangeRegions = JSON.parse(finedOrder[0].region_id)//выбранные регионы
+    let rangeDestinations = JSON.parse(finedOrder[0].destination_id)//множество значений
+
+    let sql = `SELECT * FROM orders_regions , orders
+                 WHERE orders_regions.status=1 and orders.status=1
+                 AND orders.id =orders_regions.order_id and FIND_IN_SET(orders_regions.region_id, '${rangeRegions}')
+                 AND orders.destination IN(${rangeDestinations}) `
+
+    const orders = await functions.querySQL(sql)//формируем запросы на заказы по заданным регионам
+
+    let inline_keyboard = [];
+    let text = ""
+    text+="<b>Районы поиска: </b>"+ helpers.formateTextRegions(rangeRegions,city)
+    if(!orders.length){
+        text +="\n<b>По вашему запросу ничего не найдено</b>"
+        inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
+        options.default.reply_markup = JSON.stringify({inline_keyboard})
+        return bot.sendMessage(chatId, text,options.default)
+    }
+
+    for (var i = 0; i < orders.length; i++) {
+        inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам
+    }
+    inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
+    let setStatusInProcess = `UPDATE finedOrder
+                              SET status = '1'
+                              WHERE chat_id = '${chatId}' `;
+    await db.query(setStatusInProcess)//меняем статус пользователя  на активный
+
+    if (orders.length > 0)
+        text += "\n Выберете из списка ниже:";
+    let result = {
+        parse_mode: "HTML",
+        reply_markup: JSON.stringify({inline_keyboard})
+    };
+
+    bot.sendMessage(chatId, text, result)
 }
 
 async function changeAuto(msg, chatId) {
@@ -573,6 +624,7 @@ module.exports = {
     backToList,
     saveDestination,
     destinationOrder,
-    saveDestinationOrder
+    saveDestinationOrder,
+    searchOrder
 }
 

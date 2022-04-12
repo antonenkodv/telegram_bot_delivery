@@ -23,7 +23,7 @@ module.exports = {
         }
         return text;
     },
-    validatePhoneNumber(msg,chatId){
+    validatePhoneNumber(msg, chatId) {
         if (!msg.contact && !msg.text.match(/^\+380\d{3}\d{2}\d{2}\d{2}$/)) {
             let result = {
                 parse_mode: "HTML",
@@ -43,14 +43,14 @@ module.exports = {
         }
         return true
     },
-    validateDigits(msg,chatId){
+    validateDigits(msg, chatId) {
         if (msg.text.length > 8) {
-             bot.sendMessage(chatId, "Не верный формат, номер не может быть длиннее 8-ми символов", {parse_mode:"HTML"});
-             return false
+            bot.sendMessage(chatId, "Не верный формат, номер не может быть длиннее 8-ми символов", {parse_mode: "HTML"});
+            return false
         }
         return true
     },
-    validateOrderTitle(msg,chatId,order){
+    validateOrderTitle(msg, chatId, order) {
         if (msg.text.length > 35) {
             let result = {
                 chat_id: chatId,
@@ -62,7 +62,7 @@ module.exports = {
         }
         return true
     },
-    validateOrderDesc(msg,chatId,order){
+    validateOrderDesc(msg, chatId, order) {
         if (msg.text.length > 700) {
             var result = {
                 chat_id: chatId,
@@ -74,9 +74,11 @@ module.exports = {
         }
         return true
     },
-    intersect(nums1,nums2){
-
+    formateTextRegions(arr, city) {
+        let str = ""
+        arr.forEach((item, index) => {
+            str = str + (index > 0 ? ", " : "") + city[item]
+        })
+        return str
     }
-
-
 }
