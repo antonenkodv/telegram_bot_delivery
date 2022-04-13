@@ -23,7 +23,7 @@ bot.on('message', async function (msg) {
     const text = msg.text
     if (text === '/start') return start(msg)
     if (text === '/admin') return adminPanel(msg, chatId)
-    if (text.split("_")[0] === '/new') return createAdmin(msg, chatId)
+    if (text && text.includes("_") && text.split("_")[0] === '/new') return createAdmin(msg, chatId)
     let user = await functions.getUser(msg);
 
     if (!user.admin && !user.phone) {//запись контактов шаг 2
@@ -122,7 +122,7 @@ bot.on('message', async function (msg) {
                 }
 
                 let deleteChoosedRegions = `UPDATE finedOrder
-                         SET region_id = '[]'
+                         SET region_id = '[]' 
                          WHERE chat_id = '${chatId}' `;
                 await db.query(deleteChoosedRegions)
 

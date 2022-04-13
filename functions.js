@@ -30,7 +30,7 @@ function getSql(table, params = 1, select = '*') {
     });
 }
 
-async function findOrder(chatId, flags = [], messageId) {
+async function findOrder(chatId, flags = [], messageId,attemp) {
     const regions = await getSql('regions', 'status=1');//получаем все регионы
     const inline_keyboard = [];
     for (let i = 0; i < regions.length; i++) {
@@ -44,7 +44,7 @@ async function findOrder(chatId, flags = [], messageId) {
         reply_markup: JSON.stringify({inline_keyboard})
     };
 
-    if (flags.length) {// последующие круги
+    if (flags.length || attemp) {// последующие круги
         result = {
             chat_id: chatId,
             message_id: messageId,
@@ -304,7 +304,7 @@ async function saveOrderDesc(msg, chatId, order) {
         reply_markup: JSON.stringify({inline_keyboard})
     };
     bot.editMessageText("<b>Название:</b>" + order.title + "\n<b>Описание:</b>" + getEntities(msg.text, msg.entities)+
-        "\n<b>Выберите район пункта назначения </b>", result);
+        "\n<b>🌆 Выберите район отправки </b>", result);
     db.query("UPDATE `orders` SET `description`=" + mysql.escape(getEntities(msg.text, msg.entities)) + " WHERE id=" + order.id);
 }
 

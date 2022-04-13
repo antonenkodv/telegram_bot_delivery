@@ -36,17 +36,6 @@ async function completeOrder(msg, chatId) {
     let order = parseInt(msg.data.split('_')[1]);
     const user_id = parseInt(msg.data.split('_')[2]);
 
-    // const inline_keyboard = [];
-    // inline_keyboard.push([{text: '🔙 Меню', callback_data: "adminMenu_"}]);
-    // const result = {
-    //     chat_id: chatId,
-    //     message_id: msg.message.message_id,
-    //
-    //     parse_mode: "HTML",
-    //     reply_markup: JSON.stringify({inline_keyboard})
-    // };
-    // bot.editMessageText(functions.getEntities(msg.message.text, msg.message.entities) + "\n\nЗадание завершено ✅", result);
-
     const user = await functions.getSql('users', 'id=' + user_id);
     order = await functions.getSql('orders', 'id=' + order);
     if (await functions.isAdmin(user[0].id)) {
@@ -148,16 +137,16 @@ async function sendOrder(msg, chatId) {
                 callback_data: `sendOrder_${id}_${regions[i].id}`
             }]);
         }
-        text = "<b>🌆 Выберите район отправки </b>";
+        text = "<b>🌆Выберите район отправки </b>";
     } else if (!destination) {
         const regions = await functions.getSql("regions")
-        for (let i = 0 ; i<regions.length ;i++){
+        for (let i = 0; i < regions.length; i++) {
             inline_keyboard.push([{
-                text  : regions[i].title,
+                text: regions[i].title,
                 callback_data: `saveDestination_${id}_${region}_${regions[i].id}`
             }])
         }
-    text="<b>🌆 Выберете район пунта назначения</b>"
+        text = "<b>🌆 Выберете район пункта назначения</b>"
     } else {//значит регион выбран , оформляем задание и записываем в базу
         const checkActiv = await functions.getSql('orders_regions', 'region_id=' + region + ' and order_id=' + id);
         if (checkActiv.length <= 0) {
@@ -174,9 +163,8 @@ async function sendOrder(msg, chatId) {
                 reply_markup: JSON.stringify({inline_keyboard})
             };
             bot.editMessageText(text, result);
-            const sends = await sendOrders(id, region);
-            console.log(sends)
-            text = "Пользователей ожидающих задания в этом районе: <b>" + regions.length + "</b>\nОтправленно сообщений: <b>" + sends + "</b>";
+            await sendOrders(id, region);
+            text = "Пользователей ожидающих задания в этом районе: <b>" + regions.length;
         } else {
             text = "<b>Вы уже отправляли это задание, ожидайте ответа</b>";
         }
@@ -395,7 +383,6 @@ async function stop(msg, chatId) {
     const result = {
         chat_id: chatId,
         message_id: msg.message.message_id,
-
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
@@ -408,53 +395,69 @@ async function stop(msg, chatId) {
 async function finedOrder(msg, chatId) {
     const fromChatId = msg.from.id
     const choosedRegion = parseInt(msg.data.split('_')[1]);//регион который выбрал пользователь
+    let attemp = false
 
     let flags = await functions.getSql("finedOrder", "chat_id = " + fromChatId);
     flags = JSON.parse(flags[0].region_id)
 
     if (!flags.find(item => item == choosedRegion)) flags.push(choosedRegion)
-    else return
+    else {
+        const idx = flags.findIndex(item => item == choosedRegion)
+        flags.splice(idx , 1)
+       attemp = !flags.length ? true : false
+    }
 
     const addRegion = `UPDATE finedOrder
                          SET region_id = '[${flags}]'
                          WHERE chat_id = '${fromChatId}' `;
     await db.query(addRegion)
-    await functions.findOrder(chatId, flags, msg.message.message_id)
+    await functions.findOrder(chatId, flags, msg.message.message_id,attemp)
 }
 
-async function destinationOrder(msg , chatId){//при первом открытии списка прибытия
+async function destinationOrder(msg, chatId) {//при первом открытии списка прибытия
     const regions = await functions.getSql("regions")
+    const sql = `SELECT * FROM finedOrder
+                 WHERE chat_id = '${chatId}'`
+    const finedOrder = await functions.querySQL(sql)
+    const rangeRegions = finedOrder.length ?  JSON.parse(finedOrder[0].region_id) : null
+    if (rangeRegions && !rangeRegions.length){
+        return bot.answerCallbackQuery( msg.id, {text: 'Выберите район отправки',show_alert:true});
+    }
     const inline_keyboard = []
-    for (let i = 0 ; i<regions.length ;i++){
+    for (let i = 0; i < regions.length; i++) {
         inline_keyboard.push([{
-            text  : regions[i].title,
+            text: regions[i].title,
             callback_data: `saveDestinationOrder_${regions[i].id}`
         }])
     }
-    inline_keyboard.push([{text: "🔍Поиск",callback_data: "searchOrder_"}])
+    inline_keyboard.push([{text: "🔍Поиск", callback_data: "searchOrder_"}])
     let result = {
         chat_id: chatId,
-        message_id : msg.message.message_id,
+        message_id: msg.message.message_id,
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
     await bot.editMessageText("<b>Выберете район(-ы) прибытия </b>", result)
+
 }
 
-async function saveDestinationOrder(msg, chatId){// при открытии списка больше 1
+async function saveDestinationOrder(msg, chatId) {// при открытии списка больше 1
     const choosedRegion = parseInt(msg.data.split('_')[1]);//регион который выбрал пользователь
     const result = await functions.getSql("finedOrder", "chat_id = " + chatId);
     let destinationFlags = JSON.parse(result[0].destination_id)
     if (!destinationFlags.find(item => item == choosedRegion)) destinationFlags.push(choosedRegion)
-    else return
+    else {
+        const idx = destinationFlags.findIndex(item => item == choosedRegion)
+        destinationFlags.splice(idx , 1)
+    }
 
     const addRegion = `UPDATE finedOrder
                        SET destination_id = '[${destinationFlags}]'
                        WHERE chat_id = '${chatId}' `;
     await db.query(addRegion)
-    await refreshList(chatId , destinationFlags , msg.message.message_id)
+    await refreshList(chatId, destinationFlags, msg.message.message_id)
 
-    async function refreshList(chatId , destinationFlags ,messageId ){
+    async function refreshList(chatId, destinationFlags, messageId) {
         const regions = await functions.getSql('regions', 'status=1');
         const inline_keyboard = [];
         for (let i = 0; i < regions.length; i++) {
@@ -462,14 +465,14 @@ async function saveDestinationOrder(msg, chatId){// при открытии сп
             const district = {text, callback_data: "saveDestinationOrder_" + regions[i].id}
             inline_keyboard.push([district]);
         }
-        inline_keyboard.push([{text: "🔍Поиск",callback_data: "searchOrder_"}])
+        inline_keyboard.push([{text: "🔍Поиск", callback_data: "searchOrder_"}])
         let result = {
-                chat_id: chatId,
-                message_id: messageId,
-                reply_markup: JSON.stringify({inline_keyboard}),
-                parse_mode: "HTML"
-            };
-            await bot.editMessageText("<b>Выберете район(-ы) прибытия </b>", result)
+            chat_id: chatId,
+            message_id: messageId,
+            reply_markup: JSON.stringify({inline_keyboard}),
+            parse_mode: "HTML"
+        };
+        await bot.editMessageText("<b>Выберете район(-ы) прибытия </b>", result)
     }
 }
 
@@ -488,7 +491,7 @@ async function saveDestination(msg, chatId) {//после сохранения
 
     const inline_keyboard = []
     inline_keyboard.push([{text: "Удалить ❌", callback_data: "deleteOrder_" + orderId}, {
-        text: "✅ Создать", callback_data: "sendOrder_" + orderId + "_"+region+"_"+destination
+        text: "✅ Создать", callback_data: "sendOrder_" + orderId + "_" + region + "_" + destination
     }]);
     const result = {
         chat_id: chatId,
@@ -496,11 +499,12 @@ async function saveDestination(msg, chatId) {//после сохранения
         parse_mode: "HTML",
         reply_markup: JSON.stringify({inline_keyboard})
     };
-    return bot.editMessageText("<b>Название задания: </b>" + order.title + "\n<b>Описание:</b>" + order.description +"\n<b>Район отправки:</b>"+ city[region] + "\n<b>Район прибытия: </b>" + city[destination], result)
+    return bot.editMessageText("<b>Название задания: </b>" + order.title + "\n<b>Описание:</b>" + order.description + "\n<b>Район отправки:</b>" + city[region] + "\n<b>Район прибытия: </b>" + city[destination], result)
 
 }
+
 async function searchOrder(msg, chatId) {
-    const user = await functions.getUser(msg,1);
+    const user = await functions.getUser(msg, 1);
     const verify = await functions.verifyUser(user);
     if (!verify) return
 
@@ -512,40 +516,55 @@ async function searchOrder(msg, chatId) {
     let rangeRegions = JSON.parse(finedOrder[0].region_id)//выбранные регионы
     let rangeDestinations = JSON.parse(finedOrder[0].destination_id)//множество значений
 
+    let inline_keyboard = [];
+    let text = ""
+
+    if (!rangeDestinations.length){
+        return bot.answerCallbackQuery( msg.id, {text: 'Выберите район , в который хотите доставить заказ',show_alert:true});
+    }
+
     let sql = `SELECT * FROM orders_regions , orders
                  WHERE orders_regions.status=1 and orders.status=1
                  AND orders.id =orders_regions.order_id and FIND_IN_SET(orders_regions.region_id, '${rangeRegions}')
                  AND orders.destination IN(${rangeDestinations}) `
 
-    const orders = await functions.querySQL(sql)//формируем запросы на заказы по заданным регионам
+    const orders = await functions.querySQL(sql)
 
-    let inline_keyboard = [];
-    let text = ""
-    text+="<b>Районы поиска: </b>"+ helpers.formateTextRegions(rangeRegions,city)
-    if(!orders.length){
-        text +="\n<b>По вашему запросу ничего не найдено</b>"
-        inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
+    text += "<b>Откуда: </b>" + helpers.formateTextRegions(rangeRegions, city)
+    text += "\n<b>Куда: </b>" + helpers.formateTextRegions(rangeDestinations , city)
+    if (!orders.length) {
+        text += "\n<b>По вашему запросу ничего не найдено</b>"
+        inline_keyboard.push([{text: "🔄 Обновить", callback_data: "searchOrder_"}])
+        inline_keyboard.push([{text: "🔙 Вернуться в гланое меню", callback_data: "stop_"}]);
+        options.default.chat_id = chatId
+        options.default.message_id = msg.message.message_id
         options.default.reply_markup = JSON.stringify({inline_keyboard})
-        return bot.sendMessage(chatId, text,options.default)
-    }
+        return bot.editMessageText(text,  options.default)
+    } else {
+        text+="\n<b>Всего найдено заказов: </b>"+orders.length
+        for (var i = 0; i < orders.length; i++) {
+            inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам
+        }
+        inline_keyboard.push([{text: "🔄 Обновить", callback_data: "searchOrder_"}])
+        inline_keyboard.push([{text: "🔙 Вернуться в главное меню", callback_data: "stop_"}]);
 
-    for (var i = 0; i < orders.length; i++) {
-        inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам
-    }
-    inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
-    let setStatusInProcess = `UPDATE finedOrder
+
+        let setStatusInProcess = `UPDATE finedOrder
                               SET status = '1'
                               WHERE chat_id = '${chatId}' `;
-    await db.query(setStatusInProcess)//меняем статус пользователя  на активный
+        await db.query(setStatusInProcess)//меняем статус пользователя  на активный
 
-    if (orders.length > 0)
-        text += "\n Выберете из списка ниже:";
-    let result = {
-        parse_mode: "HTML",
-        reply_markup: JSON.stringify({inline_keyboard})
-    };
+        if (orders.length > 0)
+            text += "\n\n<b>Выберете из списка ниже:</b>";
 
-    bot.sendMessage(chatId, text, result)
+        options.default.chat_id = chatId
+        options.default.message_id = msg.message.message_id
+        options.default.reply_markup =  JSON.stringify({inline_keyboard})
+
+        return bot.editMessageText(text, options.default)
+            .then(callback=> console.log(callback))
+            .catch(err=>console.log(err))
+    }
 }
 
 async function changeAuto(msg, chatId) {
