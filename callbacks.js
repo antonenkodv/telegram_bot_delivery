@@ -123,13 +123,13 @@ async function sendOrder(msg, chatId) {
     const destination = parseInt(msg.data.split('_')[3])
     let text = "<b>Что вас интересует?</b>";
     const inline_keyboard = [];
-    if (!id) {// значит админ еще не выбрал задание
+    if (!id) {
         const orders = await functions.getSql('orders', 'status=0 and title is not null and description is not null');
         for (let i = 0; i < orders.length; i++) {
             inline_keyboard.push([{text: orders[i].title, callback_data: "sendOrder_" + orders[i].id}]);
         }
         text = "<b>Выберете задание для отправки</b>";
-    } else if (!region) {//значит регион не выбран , отправляем админу выбор регионов
+    } else if (!region) {
         const regions = await functions.getSql('regions', 'status=1');
         for (let i = 0; i < regions.length; i++) {
             inline_keyboard.push([{
@@ -147,11 +147,11 @@ async function sendOrder(msg, chatId) {
             }])
         }
         text = "<b>🌆 Выберете район пункта назначения</b>"
-    } else {//значит регион выбран , оформляем задание и записываем в базу
+    } else {
         const checkActiv = await functions.getSql('orders_regions', 'region_id=' + region + ' and order_id=' + id);
         if (checkActiv.length <= 0) {
-            db.query("INSERT INTO `orders_regions`(`region_id`, `order_id`) VALUES (" + region + "," + id + ")");//на этом этапе записываем orders_regions
-            db.query("UPDATE `orders` SET `status`=1 WHERE id=" + id);//переводим в статус режима ожидания пока задание кто-то возьмет
+            db.query("INSERT INTO `orders_regions`(`region_id`, `order_id`) VALUES (" + region + "," + id + ")");
+            db.query("UPDATE `orders` SET `status`=1 WHERE id=" + id);
 
             const regions = await functions.getSql('finedOrder', 'status=1 and region_id=' + region);
             text = "Пользователей ожидающих задания в этом районе: <b>" + regions.length + "</b>";
@@ -180,7 +180,7 @@ async function sendOrder(msg, chatId) {
     bot.editMessageText(text, result);
 }
 
-async function sendOrders(order, region, i = 0) {// отвечает за рассылку сообщений
+async function sendOrders(order, region, i = 0) {
     order = await functions.getSql('orders', 'id=' + order);
     order = order[0];
     const fineders = await functions.getSql('finedOrder', 'status=1 and region_id=' + region);
@@ -251,7 +251,6 @@ async function createOrder(msg, chatId) {
         } else {
             db.query("UPDATE `orders` SET `description`=null WHERE id=" + order[0].id);
             const inline_keyboard = [];
-            // inline_keyboard.push([{text: order[0].title, callback_data: "_"}]);
             inline_keyboard.push([{
                 text: "🔄 Отменить",
                 callback_data: "createOrder_" + order[0].id
@@ -394,7 +393,7 @@ async function stop(msg, chatId) {
 
 async function finedOrder(msg, chatId) {
     const fromChatId = msg.from.id
-    const choosedRegion = parseInt(msg.data.split('_')[1]);//регион который выбрал пользователь
+    const choosedRegion = parseInt(msg.data.split('_')[1]);
     let attemp = false
 
     let flags = await functions.getSql("finedOrder", "chat_id = " + fromChatId);
@@ -414,7 +413,7 @@ async function finedOrder(msg, chatId) {
     await functions.findOrder(chatId, flags, msg.message.message_id,attemp)
 }
 
-async function destinationOrder(msg, chatId) {//при первом открытии списка прибытия
+async function destinationOrder(msg, chatId) {
     const regions = await functions.getSql("regions")
     const sql = `SELECT * FROM finedOrder
                  WHERE chat_id = '${chatId}'`
@@ -441,8 +440,8 @@ async function destinationOrder(msg, chatId) {//при первом открыт
 
 }
 
-async function saveDestinationOrder(msg, chatId) {// при открытии списка больше 1
-    const choosedRegion = parseInt(msg.data.split('_')[1]);//регион который выбрал пользователь
+async function saveDestinationOrder(msg, chatId) {
+    const choosedRegion = parseInt(msg.data.split('_')[1]);
     const result = await functions.getSql("finedOrder", "chat_id = " + chatId);
     let destinationFlags = JSON.parse(result[0].destination_id)
     if (!destinationFlags.find(item => item == choosedRegion)) destinationFlags.push(choosedRegion)
@@ -476,7 +475,7 @@ async function saveDestinationOrder(msg, chatId) {// при открытии с�
     }
 }
 
-async function saveDestination(msg, chatId) {//после сохранения
+async function saveDestination(msg, chatId) {
     const orderId = msg.data.split("_")[1]
     const region = msg.data.split("_")[2]
     const destination = msg.data.split("_")[3]
@@ -508,13 +507,13 @@ async function searchOrder(msg, chatId) {
     const verify = await functions.verifyUser(user);
     if (!verify) return
 
-    let finedOrder = await functions.getSql("finedOrder", "chat_id = " + chatId)//ищет пользователся в поиске
+    let finedOrder = await functions.getSql("finedOrder", "chat_id = " + chatId)
     if (!finedOrder.length) {
         bot.sendMessage(chatId, "<b>Пожалуйста,выберите регион</b>", options.searchOrder)
         return
     }
-    let rangeRegions = JSON.parse(finedOrder[0].region_id)//выбранные регионы
-    let rangeDestinations = JSON.parse(finedOrder[0].destination_id)//множество значений
+    let rangeRegions = JSON.parse(finedOrder[0].region_id)
+    let rangeDestinations = JSON.parse(finedOrder[0].destination_id)
 
     let inline_keyboard = [];
     let text = ""
@@ -543,7 +542,7 @@ async function searchOrder(msg, chatId) {
     } else {
         text+="\n<b>Всего найдено заказов: </b>"+orders.length
         for (var i = 0; i < orders.length; i++) {
-            inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам
+            inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);
         }
         inline_keyboard.push([{text: "🔄 Обновить", callback_data: "searchOrder_"}])
         inline_keyboard.push([{text: "🔙 Вернуться в главное меню", callback_data: "stop_"}]);
@@ -552,7 +551,7 @@ async function searchOrder(msg, chatId) {
         let setStatusInProcess = `UPDATE finedOrder
                               SET status = '1'
                               WHERE chat_id = '${chatId}' `;
-        await db.query(setStatusInProcess)//меняем статус пользователя  на активный
+        await db.query(setStatusInProcess)
 
         if (orders.length > 0)
             text += "\n\n<b>Выберете из списка ниже:</b>";

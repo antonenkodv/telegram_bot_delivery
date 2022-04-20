@@ -7,8 +7,6 @@ const {bot} = require('./bot')
 const promisify = require('util').promisify;
 const AWS = require("aws-sdk");
 const db = require("./init_db")();
-const s3 = new AWS.S3()
-
 const aws = {
     accessKeyId: process.env.ACCESS_KEY_ID,
     secretAccessKey: process.env.SECRET_ACCESS_KEY,
@@ -16,6 +14,10 @@ const aws = {
 }
 AWS.config.setPromisesDependency();
 AWS.config.update(aws)
+const s3 = new AWS.S3()
+require('dotenv').config()
+console.log(process.env.ACCESS_KEY_ID , process.env.SECRET_ACCESS_KEY , process.env.REGION)
+
 
 function getSql(table, params = 1, select = '*') {
     return new Promise(resolve => {
@@ -227,11 +229,11 @@ async function uploadToS3(fileName) {
     const data = await readFile(path.join('public', 'images', `${fileName}`));
 
     return s3.upload({
-        Bucket: 'svoi.images',
+        Bucket: 'svoi.image',
         Key: `${fileName}`,
         Body: data,
         ContentType: 'image/png',
-        ACL: 'public-read',
+        ACL: 'public-read-write',
         CacheControl: 'max-age=0',
     })
         .promise()

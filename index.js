@@ -15,7 +15,6 @@ process.env["NTBA_FIX_350"] = 1;
 
 bot.setMyCommands([
     {command: '/start', description: 'Начало'},
-    {command: '/admin', description: 'Действия админа'},
 ])
 
 bot.on('message', async function (msg) {
@@ -26,31 +25,31 @@ bot.on('message', async function (msg) {
     if (text && text.includes("_") && text.split("_")[0] === '/new') return createAdmin(msg, chatId)
     let user = await functions.getUser(msg);
 
-    if (!user.admin && !user.phone) {//запись контактов шаг 2
+    if (!user.admin && !user.phone) {
         if (helpers.validatePhoneNumber(msg, chatId)) {
-            user = await savePhone(msg, user, chatId)//добавили поле у пользователя
+            user = await savePhone(msg, user, chatId)
             await functions.verifyUser(user);
         }
 
-    } else if (!user.admin && !user.digits) {//Запись данных автомобиля шаг 3
+    } else if (!user.admin && !user.digits) {
 
         if (helpers.validateDigits(msg, chatId)) {
             user = await saveDigits(msg, user, chatId)
             user && await functions.verifyUser(user)
         }
 
-    } else if (!user.admin && !user.photo) {//добавить фото автомобиля
+    } else if (!user.admin && !user.photo) {
 
         if (msg.photo || msg.document) {
             await saveImage(msg, user, chatId)
         }
 
-    } else { //если не регистрация , шаг 4+
+    } else {
         try {
-            bot.deleteMessage(chatId, msg.message_id);//удаления текста который писал пользователь чтобы не засорять чат
+            bot.deleteMessage(chatId, msg.message_id);
             if (user.admin) {
                 let order = await functions.getSql('orders', '(title is null or description is null) and user_id=' + user.id);
-                if (order && order.length > 0) {//условие для админов если создан заказ но нет описания или названия
+                if (order && order.length > 0) {
                     order = order[0];
                     if (!order.title) {
                         if (helpers.validateOrderTitle(msg, chatId, order)) {
@@ -63,7 +62,7 @@ bot.on('message', async function (msg) {
                     }
                 }
             }
-            if ((msg.photo || msg.document) && !user.admin) {// если пользователь хочет завершить задание
+            if ((msg.photo || msg.document) && !user.admin) {
                 let condition = `SELECT * from execution_order
                                 WHERE chat_id = '${chatId}' and status = 2 `
                 let execution_order = await querySQL(condition)
@@ -109,14 +108,14 @@ bot.on('message', async function (msg) {
                 if(!checkOrders.length){
                 return  bot.sendMessage(chatId, "😴<b>Корзина заказов пуста</b>",options.mainMenu);
                 }
-                var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);//поиск активных заказов
+                var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);
                 if (execution_order.length > 0) {
                     let order = await functions.getSql('orders', 'id=' + execution_order[0].order_id);
                     bot.sendMessage(chatId, "Сначало завершите задание:\n\n<b>" + order[0].title + "</b>\n\n" + order[0].description, options.mainMenu);
                     return;
                 }
                 let messages = await functions.getSql('finedOrder', 'chat_id=' + chatId);
-                if (messages.length > 0) {//удаление сообщения
+                if (messages.length > 0) {
                     bot.deleteMessage(chatId, messages[0].message_id);
                     db.query("DELETE FROM `finedOrder` WHERE chat_id=" + chatId);
                 }
@@ -126,7 +125,7 @@ bot.on('message', async function (msg) {
                          WHERE chat_id = '${chatId}' `;
                 await db.query(deleteChoosedRegions)
 
-                await functions.findOrder(chatId);//если нет активных заказов предлагаем найти заказ
+                await functions.findOrder(chatId);
                 break;
             case "Просмотр задания":
                 var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);
@@ -138,15 +137,20 @@ bot.on('message', async function (msg) {
                 }
                 break;
             case"Настройки":
-                const result = await functions.getSql("vehicles", "digits='" + user.digits + "'");
-                const {vendor, model, model_year, kind, color} = result[0]
-                let vehicleInfo = "\n\n<b>Информация о ТС:</b> \nМодель: <b>" + vendor + " " + model + " " + model_year + "</b>\nТип: <b>" + kind + "</b>\nЦвет: <b>" + color + "</b>";
-                const photo = user.photo
-                await bot.sendPhoto(chatId, photo, {parse_mode: "HTML", caption: vehicleInfo})
-                await bot.sendMessage(chatId, "<b>Настройки</b>", JSON.parse(JSON.stringify({
-                    ...options.settings,
-                    chat_id: chatId
-                })));
+                try{
+                    const result = await functions.getSql("vehicles", "digits='" + user.digits + "'");
+                    const {vendor, model, model_year, kind, color} = result[0]
+                    let vehicleInfo = "\n\n<b>Информация о ТС:</b> \nМодель: <b>" + vendor + " " + model + " " + model_year + "</b>\nТип: <b>" + kind + "</b>\nЦвет: <b>" + color + "</b>";
+                    const photo = user.photo
+                    await bot.sendPhoto(chatId, photo, {parse_mode: "HTML", caption: vehicleInfo})
+                    await bot.sendMessage(chatId, "<b>Настройки</b>", JSON.parse(JSON.stringify({
+                        ...options.settings,
+                        chat_id: chatId
+                    })));
+                }catch (err){
+                    console.log(err)
+                }
+
 
                 return
                 break;
@@ -175,12 +179,10 @@ bot.on('message', async function (msg) {
                 return
                 break;
             default:
-                // return bot.sendMessage(chatId, "<b>Главное меню</b>", options.mainMenu);
                 break;
         }
 
     }
-
 });
 
 var callback_query_click = [];
@@ -194,7 +196,7 @@ bot.on('callback_query', async function (msg) {
     }
     setTimeout(function () {
         callback_query_click[chatId] = false;
-    }, 5 * 1000);//от повторных кликов
+    }, 5 * 1000);
 
     callback_query_click[chatId] = true;
     const entry = msg.data.split("_")[0]
@@ -207,7 +209,7 @@ bot.on('callback_query', async function (msg) {
 
 function callbackEnd(chatId, id, answerCallback = {}) {
     callback_query_click[chatId] = false;
-    bot.answerCallbackQuery(id, answerCallback);//обязательный ответ в телеграмме
+    bot.answerCallbackQuery(id, answerCallback);
 }
 
 async function start(msg) {
@@ -313,7 +315,6 @@ async function saveDigits(msg, user, chatId) {
     } catch (err) {
         console.log('[ERROR]', err);
         await bot.sendMessage(user.chat_id, "Транспорт с номерным знаком: <b>" + msg.text + "</b> не найден.", options.default);
-        // await bot.sendMessage(msg.chat.id, "<b>Повторите попытку или заполните форму</b>", options.fillForm)
         return false
     }
 }
@@ -332,12 +333,12 @@ async function saveImage(msg, user, chatId) {
         }
         if (!biggestImage) return
 
-        const fileName = await functions.uploadLocalImage(biggestImage)//сохраняем локальнo и получаем название файла
+        const fileName = await functions.uploadLocalImage(biggestImage)
         const location = await functions.uploadToS3(fileName, chatId)
         let sql = `UPDATE users
                    SET photo = '${location}'
                    WHERE chat_id = '${chatId}'`;
-        db.query(sql)//сохраняем ссылку на image в бд
+        db.query(sql)
         fs.unlinkSync(path.join('public', 'images', `${fileName}`))
 
         const condition = `SELECT vehicles.vendor ,
