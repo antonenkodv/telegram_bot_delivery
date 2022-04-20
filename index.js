@@ -9,113 +9,180 @@ const callbacks = require('./callbacks')
 const functions = require('./functions')
 const db = require('./init_db')();
 const sha1 = require('sha1');
+const {querySQL} = require("./functions");
 require('dotenv').config()
 process.env["NTBA_FIX_350"] = 1;
 
 bot.setMyCommands([
-    {command: '/start', description: 'начало регистрации'},
-    {command: '/new', description: 'создание админа'},
-    {command: '/admin', description: 'действия админа'},
+    {command: '/start', description: 'Начало'},
 ])
 
 bot.on('message', async function (msg) {
     const chatId = msg.from.id;
     const text = msg.text
     if (text === '/start') return start(msg)
-    if (text === '/new') return createAdmin(msg, chatId)
     if (text === '/admin') return adminPanel(msg, chatId)
-    if (text === '/search') return searchOrder(msg, chatId)
-
+    if (text && text.includes("_") && text.split("_")[0] === '/new') return createAdmin(msg, chatId)
     let user = await functions.getUser(msg);
 
-    if (!user.admin && !user.phone) {//запись контактов шаг 2
-
+    if (!user.admin && !user.phone) {
         if (helpers.validatePhoneNumber(msg, chatId)) {
-            user = await savePhone(msg, user, chatId)//добавили поле у пользователя
+            user = await savePhone(msg, user, chatId)
             await functions.verifyUser(user);
         }
 
-    } else if (!user.admin && !user.digits) {//Запись данных автомобиля шаг 3
+    } else if (!user.admin && !user.digits) {
 
         if (helpers.validateDigits(msg, chatId)) {
             user = await saveDigits(msg, user, chatId)
             user && await functions.verifyUser(user)
         }
 
-    } else if (!user.admin && !user.photo) {//добавить фото автомобиля
+    } else if (!user.admin && !user.photo) {
 
         if (msg.photo || msg.document) {
             await saveImage(msg, user, chatId)
         }
 
-    } else { //если не регистрация , шаг 4+
-
-        bot.deleteMessage(chatId, msg.message_id);//удаления текста который писал пользователь чтобы не засорять чат
-        if (user.admin) {
-            let order = await functions.getSql('orders', '(title is null or description is null) and user_id=' + user.id);
-            if (order && order.length > 0) {//условие для админов если создан заказ но нет описания или названия
-                order = order[0];
-                if (!order.title) {
-                    if (helpers.validateOrderTitle(msg, chatId, order)) {
-                        await functions.saveOrderTitle(msg, chatId, order)
-                    }
-                } else if (!order.description) {
-                    if (helpers.validateOrderDesc(msg, chatId, order)) {
-                        await functions.saveOrderDesc(msg, chatId, order)
+    } else {
+        try {
+            bot.deleteMessage(chatId, msg.message_id);
+            if (user.admin) {
+                let order = await functions.getSql('orders', '(title is null or description is null) and user_id=' + user.id);
+                if (order && order.length > 0) {
+                    order = order[0];
+                    if (!order.title) {
+                        if (helpers.validateOrderTitle(msg, chatId, order)) {
+                            await functions.saveOrderTitle(msg, chatId, order)
+                        }
+                    } else if (!order.description) {
+                        if (helpers.validateOrderDesc(msg, chatId, order)) {
+                            await functions.saveOrderDesc(msg, chatId, order)
+                        }
                     }
                 }
             }
-            return;
+            if ((msg.photo || msg.document) && !user.admin) {
+                let condition = `SELECT * from execution_order
+                                WHERE chat_id = '${chatId}' and status = 2 `
+                let execution_order = await querySQL(condition)
+                if (execution_order.length) {
+                    execution_order = execution_order[0]
+                    const {order_id} = execution_order
+                    condition = `SELECT * from orders 
+                            WHERE id = '${order_id}'`
+                    let order = await querySQL(condition)
+                    order = order[0]
+                    condition = `SELECT  * from users 
+                            WHERE id = ${order.user_id}`
+                    let logist = await querySQL(condition)
+                    logist = logist[0]
+                    let biggestImage = null
+                    if (msg.photo) {
+                        biggestImage = msg.photo[msg.photo.length - 1]
+                        await bot.sendPhoto(logist.chat_id, biggestImage.file_id, {
+                            parse_mode: "HTML",
+                            caption: "<b>✅Водитель завершил задание </b> \n<b>Задание</b>:"+order.title+"\n<b>Описание</b>:"+order.description+"\n<b>Исполнитель:</b>"+user.name+"\n<b>Телефон:</b>"+user.phone
+                        })
+                    } else if (msg.document) {
+                        biggestImage = msg.document.file_id
+                        await bot.sendDocument(logist.chat_id, biggestImage, {
+                            parse_mode: "HTML",
+                            caption: "<b>✅Водитель завершил задание </b> \n<b>Задание</b>:"+order.title+"\n<b>Описание</b>:"+order.description+"\n<b>Исполнитель:</b>"+user.name+"\n<b>Телефон:</b>"+user.phone
+                        })
+                    }
+                    db.query("UPDATE `orders` SET status=3 WHERE id=" + order.id);
+                    db.query("DELETE FROM `execution_order` WHERE order_id=" + order.id);
+                    db.query("INSERT INTO `orders_end`(`id_user`, `order_id`) VALUES (" + user.id + "," + order.id + ")");
+                    bot.sendMessage(chatId, "<b>" + order.title + "</b>\n\n" + order.description + "\n\nЗадание завершено ✅", options.mainMenu)
+                }
+            }
+        } catch (err) {
+            console.log(err)
         }
-        switch (msg.text) {
+
+
+        switch (text) {
             case "Поиск заказа":
-                var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);//поиск активных заказов
+                const checkOrders =await functions.querySQL(`SELECT * FROM orders`)
+                if(!checkOrders.length){
+                return  bot.sendMessage(chatId, "😴<b>Корзина заказов пуста</b>",options.mainMenu);
+                }
+                var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);
                 if (execution_order.length > 0) {
                     let order = await functions.getSql('orders', 'id=' + execution_order[0].order_id);
-                    bot.sendMessage(chatId, "Сначала завершите задание:\n\n<b>" + order[0].title + "</b>\n\n" + order[0].description, options.default);
+                    bot.sendMessage(chatId, "Сначало завершите задание:\n\n<b>" + order[0].title + "</b>\n\n" + order[0].description, options.mainMenu);
                     return;
                 }
-                var messages = await functions.getSql('finedOrder', 'chat_id=' + chatId);
-                if (messages.length > 0) {//удаление сообщения
+                let messages = await functions.getSql('finedOrder', 'chat_id=' + chatId);
+                if (messages.length > 0) {
                     bot.deleteMessage(chatId, messages[0].message_id);
                     db.query("DELETE FROM `finedOrder` WHERE chat_id=" + chatId);
                 }
-                console.log("menu");
 
                 let deleteChoosedRegions = `UPDATE finedOrder
-                         SET region_id = '[]'
+                         SET region_id = '[]' 
                          WHERE chat_id = '${chatId}' `;
                 await db.query(deleteChoosedRegions)
 
-                await functions.findOrder(chatId);//если нет активных заказов предлагаем найти заказ
+                await functions.findOrder(chatId);
                 break;
             case "Просмотр задания":
                 var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);
                 if (execution_order.length > 0) {
                     let order = await functions.getSql('orders', 'id=' + execution_order[0].order_id);
-                    bot.sendMessage(chatId, "Ваше задание:\n\n<b>" + order[0].title + "</b>\n\n" + order[0].description, options.default);
+
+                    bot.sendMessage(chatId, `Ваше задание: \n<b>Название</b> ${order[0].title} \n<b>Описание</b> ${order[0].description}`, options.mainMenu);
                     return;
                 }
                 break;
             case"Настройки":
-                const result = await functions.getSql("vehicles", "digits='" + user.digits + "'");
-                const {vendor, model, model_year, kind, color} = result[0]
-                let vehicleInfo = "\n\n<i>Информация о ТС:</i> \nМодель: <b>" + vendor + " " + model + " " + model_year + "</b>\nТип: <b>" + kind + "</b>\nЦвет: <b>" + color + "</b>";
-                const photo = user.photo
-                await bot.sendPhoto(chatId, photo, {parse_mode: "HTML", caption: vehicleInfo})
-                await bot.sendMessage(chatId, "<b>Настройки</b>", JSON.parse(JSON.stringify({
-                    ...options.settings,
-                    chat_id: chatId
-                })));
+                try{
+                    const result = await functions.getSql("vehicles", "digits='" + user.digits + "'");
+                    const {vendor, model, model_year, kind, color} = result[0]
+                    let vehicleInfo = "\n\n<b>Информация о ТС:</b> \nМодель: <b>" + vendor + " " + model + " " + model_year + "</b>\nТип: <b>" + kind + "</b>\nЦвет: <b>" + color + "</b>";
+                    const photo = user.photo
+                    await bot.sendPhoto(chatId, photo, {parse_mode: "HTML", caption: vehicleInfo})
+                    await bot.sendMessage(chatId, "<b>Настройки</b>", JSON.parse(JSON.stringify({
+                        ...options.settings,
+                        chat_id: chatId
+                    })));
+                }catch (err){
+                    console.log(err)
+                }
+
+
+                return
+                break;
+            case "Мои задания":
+                var execution_order = await functions.getSql('execution_order', 'user_id=' + user.id);
+                if (execution_order.length > 0) {
+                    let order = await functions.getSql('orders', 'id=' + execution_order[0].order_id);
+                    completeOrder = {
+                        parse_mode: "HTML",
+                        reply_markup: JSON.stringify({
+                            one_time_keyboard: true,
+                            inline_keyboard: [
+                                [{
+                                    text: '✅ Завершить задание',
+                                    callback_data: `completeOrder_` + order[0].id + "_" + user.id
+                                },
+                                    {text: '🔙 Назад', callback_data: 'backToMenu_'}],
+                            ]
+                        })
+                    }
+                    bot.sendMessage(chatId, `Ваше задание: \n<b>Название</b> : ${order[0].title} \n<b>Описание</b> : ${order[0].description}`, completeOrder);
+                    return;
+                } else {
+                    bot.sendMessage(chatId, "<b>У вас пока нет заданий</b>", options.mainMenu)
+                }
                 return
                 break;
             default:
-                return bot.sendMessage(chatId, "<b>Главное меню</b>", options.mainMenu);
                 break;
         }
 
     }
-
 });
 
 var callback_query_click = [];
@@ -129,12 +196,12 @@ bot.on('callback_query', async function (msg) {
     }
     setTimeout(function () {
         callback_query_click[chatId] = false;
-    }, 5 * 1000);//от повторных кликов
+    }, 5 * 1000);
 
     callback_query_click[chatId] = true;
-        const entry = msg.data.split("_")[0]
-        const func =  callbacks[entry]
-        await func(msg,chatId)
+    const entry = msg.data.split("_")[0]
+    const func = callbacks[entry]
+    await func(msg, chatId)
 
     callbackEnd(chatId, msg.id, answerCallback);
     return;
@@ -142,7 +209,7 @@ bot.on('callback_query', async function (msg) {
 
 function callbackEnd(chatId, id, answerCallback = {}) {
     callback_query_click[chatId] = false;
-    bot.answerCallbackQuery(id, answerCallback);//обязательный ответ в телеграмме
+    bot.answerCallbackQuery(id, answerCallback);
 }
 
 async function start(msg) {
@@ -155,15 +222,39 @@ async function start(msg) {
 }
 
 async function createAdmin(msg, chatId) {
-    if (chatId == '287363909') {
-        db.query("INSERT INTO `admins`(`link`) VALUES ('" + sha1(Math.random()) + "')");
-        const newOrg = await functions.getSql("admins", "user_id is NULL");
-        let txt = "";
-        for (let i = 0; i < newOrg.length; i++) {
-            txt += (i + 1) + ". https://t.me/SvoiLogisticsBot?start=" + newOrg[i].link + "\n";
+    try {
+    const command = msg.text.split("_")[0]
+    let digits = msg.text.split("_")[1]
+    const accessPermissions = ['464824652', '131861501','587094194']
+    const sha = sha1(String(digits + "_" + Math.random()*100))
+
+        if (!digits) return bot.sendMessage(chatId, "Вы не указали номер")
+        digits = helpers.toENG(digits)
+        let sql = `SELECT * FROM users
+               WHERE digits = '${digits}'`
+        let user = await functions.querySQL(sql)
+        if (!user.length) {
+            bot.sendMessage(chatId, "Пользователь не найден")
         }
-        bot.sendMessage(chatId, txt);
+        user = user[0]
+        sql = `SELECT * FROM admins
+               WHERE user_id='${user.id}'`
+        const res = await functions.querySQL(sql)
+        if(res.length){
+          return   bot.sendMessage(chatId,'Такой пользователь уже существует')
+        }
+        if (accessPermissions.find(item => chatId == item)) {
+            sql = `INSERT INTO admins (link , user_id ,status)  VALUES('${sha}' ,'${user.id}', '1')`
+            db.query(sql);
+            return bot.sendMessage(chatId, "✅ <b>Успешно создан</b>",options.default);
+        }else{
+            return bot.sendMessage(chatId , "<b>У вас недостаточно прав</b>",options.default)
+        }
+    } catch (err) {
+        console.log(err)
+        bot.sendMessage(chatId, "❌ Произошла ошибока")
     }
+
 }
 
 async function adminPanel(msg, chatId) {
@@ -172,7 +263,6 @@ async function adminPanel(msg, chatId) {
         const inline_keyboard = [];
         inline_keyboard.push([{text: "Задания на выполнении", callback_data: "acceptOrder_"}]);
         inline_keyboard.push([{text: "Ожидают исполнителей", callback_data: "holdOrder_"}]);
-        inline_keyboard.push([{text: "Отправиь задание", callback_data: "sendOrder_"}]);
         inline_keyboard.push([{text: "Создать задание", callback_data: "createOrder_"}]);
 
         const result = {
@@ -183,40 +273,8 @@ async function adminPanel(msg, chatId) {
     }
 }
 
-async function searchOrder(msg, chatId) {
-    const user = await functions.getUser(msg);
-    const verify = await functions.verifyUser(user);
-    if (!verify) return
-
-    let finedOrder = await functions.getSql("finedOrder", "chat_id = " + chatId)//ищет пользователся в поиске
-    let rangeRegions = JSON.parse(finedOrder[0].region_id)//выбранные регионы
-
-    const sql = `SELECT * FROM orders_regions , orders
-                 WHERE orders_regions.status=1 and orders.status=1
-                 AND orders.id =orders_regions.order_id and FIND_IN_SET(orders_regions.region_id, '${rangeRegions}')`
-    const orders = await functions.querySQL(sql)//формируем запросы на заказы по заданным регионам
-    let inline_keyboard = [];
-    for (var i = 0; i < orders.length; i++) {
-        inline_keyboard.push([{text: orders[i].title, callback_data: "order_" + orders[i].id}]);//делаем кнопки по регионам
-    }
-    inline_keyboard.push([{text: "❌Отстановить поиск❌", callback_data: "stop_"}]);
-
-    let setStatusInProcess = `UPDATE finedOrder
-                              SET status = '1'
-                              WHERE chat_id = '${chatId}' `;
-    await db.query(setStatusInProcess)//меняем статус пользователя  на активный
-
-    let text = "<b>Поиск заданий</b>\nРайон(-ы):"
-    if (orders.length > 0)
-        text += "\n\nИли выберете из списка ниже:";
-    let result = {
-        parse_mode: "HTML",
-        reply_markup: JSON.stringify({inline_keyboard})
-    };
-    bot.sendMessage(chatId, text, result)
-}
-
 async function savePhone(msg, user, chatId) {
+
     if (msg.contact) {
         db.query("UPDATE `users` SET phone='" + msg.contact.phone_number + "' WHERE chat_id=" + chatId);
         user.phone = msg.contact.phone_number;
@@ -231,7 +289,12 @@ async function saveDigits(msg, user, chatId) {
     let url = "https://baza-gai.com.ua/nomer/" + helpers.toENG(msg.text);
 
     try {
-        const response = await axios.get(url, {headers: {"Accept": "application/json", "X-Api-Key": process.env.GAI_KEY}})
+        const response = await axios.get(url, {
+            headers: {
+                "Accept": "application/json",
+                "X-Api-Key": process.env.GAI_KEY
+            }
+        })
         console.log(response)
         if (response.status === 200 && response.data) {
             console.log("auto found");
@@ -252,7 +315,6 @@ async function saveDigits(msg, user, chatId) {
     } catch (err) {
         console.log('[ERROR]', err);
         await bot.sendMessage(user.chat_id, "Транспорт с номерным знаком: <b>" + msg.text + "</b> не найден.", options.default);
-        // await bot.sendMessage(msg.chat.id, "<b>Повторите попытку или заполните форму</b>", options.fillForm)
         return false
     }
 }
@@ -271,12 +333,12 @@ async function saveImage(msg, user, chatId) {
         }
         if (!biggestImage) return
 
-        const fileName = await functions.uploadLocalImage(biggestImage)//сохраняем локальнo и получаем название файла
+        const fileName = await functions.uploadLocalImage(biggestImage)
         const location = await functions.uploadToS3(fileName, chatId)
         let sql = `UPDATE users
                    SET photo = '${location}'
                    WHERE chat_id = '${chatId}'`;
-        db.query(sql)//сохраняем ссылку на image в бд
+        db.query(sql)
         fs.unlinkSync(path.join('public', 'images', `${fileName}`))
 
         const condition = `SELECT vehicles.vendor ,
@@ -288,7 +350,6 @@ async function saveImage(msg, user, chatId) {
                                    WHERE users.digits=vehicles.digits and users.chat_id='${chatId}'`
         const userVehicle = await functions.querySQL(condition)
         const {vendor, model, model_year, color, kind} = userVehicle[0]
-        await bot.deleteMessage(chatId, msg.message_id)
         await bot.sendMessage(user.chat_id, "Ваш транспорт:<b>" +
             "</b>\nТип: <b>" +
             kind +
@@ -308,7 +369,7 @@ async function saveImage(msg, user, chatId) {
         user.photo = fileName
 
         if (await functions.verifyUser(user)) {
-            bot.sendMessage(user.chat_id, "<b>Регистрация завершена, можете начать поиск</b>", options.mainMenu);
+            bot.sendMessage(user.chat_id, "<b>🎉Регистрация завершена, можете начать поиск</b>", options.mainMenu);
         }
     } catch (err) {
         console.log('[ERROR]', err)
